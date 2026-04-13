@@ -1,0 +1,288 @@
+<!DOCTYPE html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <script>
+      (function () {
+        try {
+          if (!/^https?:$/i.test(window.location.protocol)) return;
+          var path = window.location.pathname || "/";
+          var basePath;
+          if (path === "" || path === "/") {
+            basePath = "/";
+          } else if (path.endsWith("/")) {
+            basePath = path;
+          } else if (/\.(html|htm)$/i.test(path)) {
+            basePath = path.replace(/[^/]+$/, "");
+          } else {
+            basePath = path + "/";
+          }
+          if (!basePath.endsWith("/")) basePath += "/";
+          var b = document.createElement("base");
+          b.href = window.location.origin + basePath;
+          var m = document.head.querySelector("meta[charset]");
+          document.head.insertBefore(b, m ? m.nextSibling : document.head.firstChild);
+        } catch (e) {}
+      })();
+    </script>
+    <title>Portal Vacacional Admin SSMX</title>
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <!--
+      Capa fija hasta init(): evita parpadeos y saltos de layout al refrescar (admin/maestro).
+      Misma lógica que portal.html (#appBootOverlay + role en body antes del primer paint útil).
+    -->
+    <script>
+      (function () {
+        try {
+          if (window.sessionStorage.getItem("vacaciones_auth") !== "true") return;
+          var role = window.sessionStorage.getItem("vacaciones_role");
+          if (role === "admin" || role === "maestro") {
+            document.body.classList.add("role-" + role);
+            var el = document.createElement("div");
+            el.id = "appBootOverlay";
+            el.setAttribute("aria-hidden", "true");
+            el.style.cssText =
+              "position:fixed;inset:0;background:#ffffff;z-index:2147483647;";
+            document.body.insertBefore(el, document.body.firstChild);
+          }
+        } catch (e) {}
+      })();
+    </script>
+    <div id="appRoot" class="app-root">
+      <header class="app-header">
+        <h1>Administración Vacacional SSMX</h1>
+        <img
+          src="SamsongLogo.png"
+          alt="Logo Samsong"
+          class="app-header-logo"
+        />
+      </header>
+
+      <!-- Texto "Operador" + buscador -->
+      <section
+        class="admin-operator-title"
+        style="margin: 14px 0 0 40px; display: flex; align-items: center; gap: 20px;"
+      >
+        <p style="color: #000000; padding: 6px 0; margin: 0; font-weight: 700;">Operador</p>
+        <input
+          type="text"
+          id="searchInput"
+          placeholder="Buscar por nombre o ID"
+          style="
+            padding: 6px 10px;
+            border-radius: 999px;
+            border: 1px solid #cccccc;
+            font-size: 0.9rem;
+            color: #000000;
+            background-color: #ffffff;
+            width: 260px;
+            margin-left: 10px;
+          "
+        />
+        <select
+          id="shiftFilter"
+          style="
+            padding: 6px 10px;
+            border-radius: 999px;
+            border: 1px solid #cccccc;
+            font-size: 0.9rem;
+            color: rgb(150, 150, 150);
+            background-color: #ffffff;
+            width: 180px;
+          "
+        >
+          <option value="">Todos los turnos</option>
+          <option value="Mañana">Mañana</option>
+          <option value="Tarde">Tarde</option>
+          <option value="Noche">Noche</option>
+        </select>
+        <div id="adminNotificationCenter" class="admin-notification-center">
+          <button
+            type="button"
+            id="adminNotificationBtn"
+            class="admin-notification-btn"
+            aria-label="Abrir solicitudes pendientes"
+            aria-expanded="false"
+            aria-controls="adminNotificationPanel"
+          >
+            <span class="admin-notification-icon" aria-hidden="true">🔔</span>
+            <span id="adminNotificationCount" class="admin-notification-count">0</span>
+          </button>
+          <div
+            id="adminNotificationPanel"
+            class="admin-notification-panel"
+            style="display: none;"
+          >
+            <div class="admin-notification-panel-title">Solicitudes pendientes</div>
+            <div
+              id="adminNotificationList"
+              class="admin-notification-list"
+              aria-live="polite"
+            ></div>
+          </div>
+        </div>
+      </section>
+
+      <div
+        id="adminOperatorPhotoAndMotivoRow"
+        style="display: flex; align-items: flex-start; gap: 18px;"
+      >
+        <div class="admin-left-column" style="display: flex; flex-direction: column;">
+          <!-- Recuadro de foto: solo aparece cuando se selecciona un operador -->
+          <section
+            class="card operator-card"
+            id="adminOperatorPhotoCard"
+            style="display: none; margin: 46px 0 0 30px;"
+          >
+            <div class="operator-extra-wrap" id="operatorPhotoWrap">
+              <img
+                id="operatorPhoto"
+                class="operator-photo"
+                src=""
+                alt="Foto del operador"
+              />
+              <span class="operator-photo-placeholder">Vacío</span>
+              <input
+                type="file"
+                id="operatorPhotoInput"
+                class="operator-photo-input"
+                accept="image/png,image/jpeg,image/jpg,image/webp"
+                aria-label="Subir foto del operador"
+              />
+            </div>
+          </section>
+
+          <!-- Debajo de la foto: tabla de datos del operador (renderizada por app.js) -->
+          <div
+            id="adminOperatorDetailWrap"
+            style="
+              display: none;
+              margin: -11px 0 0 40px;
+              width: 200px;
+              max-width: 200px;
+              border-radius: 0;
+              background: #ffffff;
+              border: 1px solid #000000;
+              padding: 0;
+            "
+          >
+            <div
+              class="operator-detail operator-detail-table-wrap"
+              id="operatorDetailContent"
+            ></div>
+          </div>
+        </div>
+
+        <div
+          id="adminSavedEstatusWrap"
+          class="admin-saved-estatus-wrap"
+          style="display: none;"
+        >
+          <section
+            id="adminSavedRequestCard"
+            class="card admin-saved-request-card"
+          >
+            <h2 class="admin-saved-request-title">Solicitud</h2>
+            <div id="adminSavedRequestContent" class="admin-saved-request-content"></div>
+            <div
+              class="admin-saved-request-actions"
+              style="display: none;"
+            >
+              <button type="button" class="admin-saved-action-btn admin-saved-action-accept">
+                Aceptar
+              </button>
+              <button type="button" class="admin-saved-action-btn admin-saved-action-reject">
+                Rechazar
+              </button>
+            </div>
+          </section>
+          <div id="estatusPermisoBlock" class="estatus-permiso-block estatus-permiso-block--admin">
+            <p id="estatusPermisoLabel" class="estatus-permiso-label">
+              Estatus del permiso
+            </p>
+            <table class="estatus-permiso-table">
+              <tbody>
+                <tr>
+                  <td class="estatus-permiso-head">Administrador</td>
+                  <td class="estatus-permiso-head">Estado</td>
+                </tr>
+                <tr>
+                  <td>Supervisor</td>
+                  <td id="estatusCellSupervisor"><span class="estatus-pill estatus-pill-pendiente">Pendiente</span></td>
+                </tr>
+                <tr>
+                  <td>Gerente Dpto</td>
+                  <td id="estatusCellGerente"><span class="estatus-pill estatus-pill-pendiente">Pendiente</span></td>
+                </tr>
+                <tr>
+                  <td>RH</td>
+                  <td id="estatusCellRH"><span class="estatus-pill estatus-pill-pendiente">Pendiente</span></td>
+                </tr>
+                <tr class="estatus-permiso-final-row">
+                  <td>Estatus final</td>
+                  <td id="estatusCellEstadoFinal"><span class="estatus-pill estatus-pill-pendiente">Pendiente</span></td>
+                </tr>
+              </tbody>
+            </table>
+            <div
+              class="estatus-permiso-actions"
+              style="display: none;"
+            >
+              <button type="button" class="estatus-permiso-action-btn estatus-permiso-btn-modif">
+                Modif. Estado
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Historial fuera de la fila flex (no ensancha la columna ni desplaza Solicitud / Estatus) -->
+      <div id="adminHistorySection" class="admin-history-section" style="display: none;">
+        <div id="adminHistoryToggleWrap" class="admin-history-toggle-wrap">
+          <button
+            type="button"
+            id="adminHistoryToggleBtn"
+            class="admin-history-toggle-btn"
+            aria-expanded="false"
+            aria-controls="adminHistoryContent"
+          >
+            <span class="admin-history-toggle-text">Ver historial de solicitudes</span>
+            <span class="admin-history-arrow" aria-hidden="true"></span>
+          </button>
+        </div>
+        <div
+          id="adminHistoryContent"
+          class="admin-history-content admin-history-content--below-table"
+          style="display: none;"
+        >
+          <div id="adminHistoryList" class="admin-history-list"></div>
+        </div>
+      </div>
+
+      <div class="admin-footer-spacer" aria-hidden="true"></div>
+
+      <footer class="app-footer">
+        <span>Samsong S.A. de C.V.</span>
+      </footer>
+
+      <!-- Contenedores mínimos ocultos para que app.js funcione sin error -->
+      <div style="display: none">
+        <table>
+          <tbody id="absencesTableBody"></tbody>
+        </table>
+        <table>
+          <tbody id="approvalsTableBody"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <script
+      src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"
+      crossorigin="anonymous"
+      referrerpolicy="no-referrer"
+    ></script>
+    <script src="app.js"></script>
+  </body>
+</html>

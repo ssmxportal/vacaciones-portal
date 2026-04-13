@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <script>
+      (function () {
+        try {
+          if (!/^https?:$/i.test(window.location.protocol)) return;
+          var path = window.location.pathname || "/";
+          var basePath;
+          if (path === "" || path === "/") {
+            basePath = "/";
+          } else if (path.endsWith("/")) {
+            basePath = path;
+          } else if (/\.(html|htm)$/i.test(path)) {
+            basePath = path.replace(/[^/]+$/, "");
+          } else {
+            basePath = path + "/";
+          }
+          if (!basePath.endsWith("/")) basePath += "/";
+          var b = document.createElement("base");
+          b.href = window.location.origin + basePath;
+          var m = document.head.querySelector("meta[charset]");
+          document.head.insertBefore(b, m ? m.nextSibling : document.head.firstChild);
+        } catch (e) {}
+      })();
+    </script>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Portal Maestro Operador</title>
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <!--
+      Capa blanca hasta setupMaestroOp() (evita ver fondo/login o layout vacío al refrescar muchas veces).
+      Mismo id #appBootOverlay que portal/admin; app.js lo quita al terminar la inicialización.
+    -->
+    <script>
+      (function () {
+        try {
+          if (
+            window.sessionStorage.getItem("vacaciones_auth") === "true" &&
+            window.sessionStorage.getItem("vacaciones_role") === "maestroop"
+          ) {
+            var el = document.createElement("div");
+            el.id = "appBootOverlay";
+            el.setAttribute("aria-hidden", "true");
+            el.style.cssText =
+              "position:fixed;inset:0;background:#ffffff;z-index:2147483647;";
+            document.body.insertBefore(el, document.body.firstChild);
+          }
+        } catch (e) {}
+      })();
+    </script>
+    <main id="maestroOpRoot" style="padding: 24px; max-width: 860px; margin: 0 auto;">
+      <h1 style="margin: 0 0 16px; color: #000000;">Portal Maestro Operador</h1>
+
+      <section style="display: flex; gap: 10px; align-items: center; margin-bottom: 18px;">
+        <input
+          type="text"
+          id="maestroSearchInput"
+          placeholder="Buscar por nombre o ID"
+          style="
+            padding: 8px 12px;
+            border-radius: 999px;
+            border: 1px solid #cccccc;
+            font-size: 0.95rem;
+            width: 300px;
+            color: #000000;
+            background: #ffffff;
+          "
+        />
+        <button
+          type="button"
+          id="maestroSearchBtn"
+          class="btn-guardar-vacaciones"
+        >
+          Buscar
+        </button>
+      </section>
+
+      <section
+        id="maestroOperatorCard"
+        style="display: none; border: 1px solid #000000; border-radius: 8px; background: #ffffff; padding: 14px;"
+      >
+        <div id="maestroOperatorData"></div>
+        <div style="margin-top: 12px; display: flex; flex-direction: column; gap: 8px; align-items: flex-start;">
+          <div style="display: flex; gap: 10px; align-items: center;">
+            <button
+              type="button"
+              id="maestroResetBtn"
+              class="btn-guardar-vacaciones"
+            >
+              Reset
+            </button>
+            <span id="maestroResetStatus" style="color: #000000; font-size: 0.9rem;"></span>
+          </div>
+          <button
+            type="button"
+            id="maestroClearHistoryBtn"
+            class="btn-guardar-vacaciones"
+          >
+            Borrar Hist.
+          </button>
+          <button
+            type="button"
+            id="maestroResetDiasDisponiblesBtn"
+            class="btn-guardar-vacaciones"
+          >
+            Restablecer días disponibles (25)
+          </button>
+        </div>
+      </section>
+    </main>
+
+    <script src="app.js"></script>
+  </body>
+</html>

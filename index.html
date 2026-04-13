@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <script>
+    (function () {
+      try {
+        if (!/^https?:$/i.test(window.location.protocol)) return;
+        var path = window.location.pathname || "/";
+        var basePath;
+        if (path === "" || path === "/") {
+          basePath = "/";
+        } else if (path.endsWith("/")) {
+          basePath = path;
+        } else if (/\.(html|htm)$/i.test(path)) {
+          basePath = path.replace(/[^/]+$/, "");
+        } else {
+          basePath = path + "/";
+        }
+        if (!basePath.endsWith("/")) basePath += "/";
+        var b = document.createElement("base");
+        b.href = window.location.origin + basePath;
+        var m = document.head.querySelector("meta[charset]");
+        document.head.insertBefore(b, m ? m.nextSibling : document.head.firstChild);
+      } catch (e) {}
+    })();
+  </script>
+  <title>Portal Solicitud Vacacional Op SSMX</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body class="login-design-2">
+  <!-- Pantalla de inicio de sesión -->
+  <div id="loginOverlay" class="login-overlay">
+    <div class="login-card">
+      <img src="SamsongLogo.png" alt="Logo Samsong" class="login-logo" />
+      <h1 class="login-title">Bienvenido</h1>
+      <p class="login-subtitle">Ingrese sus datos.</p>
+      <div class="login-form">
+        <label>
+          Usuario
+          <input type="text" id="loginUser" autocomplete="off" />
+        </label>
+        <label>
+          Contraseña
+          <input type="password" id="loginPass" />
+        </label>
+        <button id="loginButton" class="login-button">Entrar</button>
+        <p id="loginError" class="login-error"></p>
+      </div>
+    </div>
+    <p class="login-footer-brand">Samsong S.A. de C.V.</p>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>

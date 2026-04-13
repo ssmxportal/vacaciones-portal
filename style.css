@@ -1,0 +1,5883 @@
+.hidden {
+  display: none !important;
+}
+
+:root {
+  --bg: #0f172a;
+  --bg-elevated: #020617;
+  --card-bg: #020617;
+  --accent: #22c55e;
+  --accent-soft: rgba(34, 197, 94, 0.16);
+  --text: #dfe1e5;
+  --text-soft: #000000;
+  --border-subtle: rgba(148, 163, 184, 0.25);
+  --danger: #f97373;
+  --warning: #facc15;
+  --success: #4ade80;
+  --surface-soft: rgba(15, 23, 42, 0.6);
+  --radius-lg: 18px;
+  --radius-md: 12px;
+  --blur: 18px;
+  --table-row-bg: rgba(15, 23, 42, 0.7);
+  --table-row-alt: rgba(15, 23, 42, 0.3);
+  --operator-frame-border: #000000;
+  /* Línea entre filas de la tabla "Datos del operador" (no afecta Estatus del permiso) */
+  --operator-detail-row-border: #000000;
+  /* Comandos de ancho para Día / Mes / Año (Vacaciones, Permiso con goce, Falta justificada, Permiso sin goce) */
+  --fecha-dia-width: 59px;
+  --fecha-mes-width: 64px;
+  --fecha-anio-width: 50px;
+  /*
+   * Ancho mínimo del recuadro de fechas en portal.html:
+   * - Permiso sin goce (#fechaPermisoSinGoceCard; incluye fila No. días)
+   * - Permiso con goce (#fechasPermisoCard)
+   * Son independientes: cambia solo la variable que corresponda.
+   */
+  --portal-fechas-permiso-sin-goce-min-width: 454px;
+  --portal-fechas-permiso-con-goce-min-width: 454px;
+  /* Anchos mínimos independientes para fechas en Vacaciones y Falta justificada (esta incluye fila No. días) */
+  --portal-fechas-disfrutar-min-width: 454px;
+  --portal-fechas-justificar-min-width: 454px;
+  /*
+   * Posición del bloque "No. días" + recuadro (columna derecha de la fila de fechas).
+   * margin-left más negativo = más a la izquierda (hacia los selectores).
+   * margin-top más negativo = más arriba.
+   * Permiso con goce → #fechasPermisoCard | Falta justificada → #fechaJustificarCard | Permiso sin goce → #fechaPermisoSinGoceCard
+   */
+  --portal-no-dias-offset-x-permiso-con-goce: -180px;
+  --portal-no-dias-offset-y-permiso-con-goce: -8px;
+  --portal-no-dias-offset-x-falta-justificada: -180px;
+  --portal-no-dias-offset-y-falta-justificada: -10px;
+  --portal-no-dias-offset-x-permiso-sin-goce: -180px;
+  --portal-no-dias-offset-y-permiso-sin-goce: -10px;
+  --bold-intensity: 600;
+  /*
+   * Mismo "comando" para ambas: margin-top: var(--…).
+   * Valores independientes: cambia solo la variable de Falta justificada o la de Permiso sin goce.
+   */
+  --portal-dias-disponibles-offset-falta-justificada: 0px;
+  --portal-dias-disponibles-offset-permiso-sin-goce: 0px;
+  /*
+   * --- Comandos: recuadro «Solicitud en curso» (portal, tras decisión de un admin) ---
+   * Edita solo estas variables (o -permiso-goce / -falta-justificada / -permiso-sin-goce / -tras-estatus) para mover el bloque
+   * sin tocar app.js. Unidades: px. margin-top negativo sube el recuadro; positivo lo baja.
+   */
+  --portal-solicitud-en-curso-offset-y: -110px;
+  --portal-solicitud-recuadro-offset-x: -44px;
+  /* Ancho deseado del bloque (tarjeta + botones); el ancho real = min(esto, 100vw - margen) */
+  --portal-solicitud-recuadro-max-width: 900px;
+  /* Espacio reservado a la izquierda (foto + fila media) al calcular ancho respecto al viewport */
+  --portal-solicitud-recuadro-viewport-margin: 260px;
+  /* Solo «Permiso con goce» (.permiso-goce-columna) */
+  --portal-solicitud-en-curso-offset-y-permiso-goce: -168px;
+  --portal-solicitud-recuadro-offset-x-permiso-goce: -62px;
+  /* Solo «Falta justificada» (.falta-justificada-columna): mismos comandos que Permiso con goce */
+  --portal-solicitud-en-curso-offset-y-falta-justificada: -168px;
+  --portal-solicitud-recuadro-offset-x-falta-justificada: -62px;
+  /* Solo «Permiso sin goce» (.permiso-sin-goce-columna): mismos comandos que Falta justificada */
+  --portal-solicitud-en-curso-offset-y-permiso-sin-goce: -168px;
+  --portal-solicitud-recuadro-offset-x-permiso-sin-goce: -62px;
+  /* Solo si en app.js PORTAL_SOLICITUD_EN_CURSO_REGION = "tras_estatus" (debajo de Estatus del permiso) */
+  --portal-solicitud-en-curso-offset-y-tras-estatus: -110px;
+  --portal-solicitud-recuadro-offset-x-tras-estatus: -44px;
+  /*
+   * Falta justificada / Permiso sin goce alargan main; se resta del margin-top del historial
+   * para alinear «Ver historial» con Vacaciones / Permiso con goce (ajusta el valor si hace falta).
+   */
+  --portal-history-margin-top-subtract-falta-psg: 32px;
+  /*
+   * admin.html — Tarjeta «Solicitud» — Aceptar / Rechazar (translateY).
+   *
+   * COMANDO 1 — Motivo «Vacaciones»:
+   *   Consola: setPosicionBotonesSolicitudVacaciones('-90px')
+   */
+  --admin-saved-nudge-y-vacaciones: -76px;
+  /*
+   * COMANDO 2 — Motivo «Permiso con goce»:
+   *   Consola: setPosicionBotonesSolicitudPermisoConGoce('-24px')
+   */
+  --admin-saved-nudge-y-permiso-con-goce: -32px;
+  /*
+   * COMANDO 3 — Motivo «Falta justificada»:
+   *   Consola: setPosicionBotonesSolicitudFaltaJustificada('-10px')
+   */
+  --admin-saved-nudge-y-falta-justificada: -32px;
+  /*
+   * COMANDO 4 — Motivo «Permiso sin goce»:
+   *   Consola: setPosicionBotonesSolicitudPermisoSinGoce('-10px')
+   */
+  --admin-saved-nudge-y-permiso-sin-goce: -32px;
+}
+
+.diasDisponiblesValue {
+  font-weight: var(--bold-intensity);
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, "SF Pro Text",
+    "Segoe UI", sans-serif;
+  color: var(--text);
+  background: url("SAMSONGMX.jpg") no-repeat center center fixed;
+  background-size: cover;
+}
+
+/* Aumentar tamaño base de toda la hoja principal */
+html {
+  font-size: 18px;
+  /*
+   * Evita que el ancho útil “salte” cuando aparece/desaparece la barra vertical de scroll
+   * (refrescos rápidos: logo, campana y pie centrado se movían o parpadeaban).
+   */
+  scrollbar-gutter: stable;
+}
+
+body {
+  display: flex;
+  flex-direction: column;
+}
+
+.app-root {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  background: #ffffff;
+  min-height: 130vh;
+}
+
+/* Header */
+
+.admin-only-header > :not(header) {
+  display: none !important;
+}
+
+.login-overlay {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: radial-gradient(circle at middle, rgba(255, 255, 255, 0.55) 0, rgba(255, 255, 255, 0) 70%);
+  z-index: 100;
+}
+
+.login-brand-logo {
+  position: absolute;
+  top: 30px;
+  left: 30px;
+  width: 150px;
+  height: auto;
+}
+
+.login-logo {
+  display: block;
+  width: 80px;      /* ajusta el tamaño a tu gusto */
+  height: auto;
+  margin: 0 0 10px;
+  align-self: flex-start;
+  border-radius: 12px; /* si quieres esquinas redondeadas, opcional */
+}
+
+.login-card {
+  background: rgba(35, 60, 105, 0.74);
+  border-radius: var(--radius-lg);
+  padding: 24px 26px 20px;
+  border: 1px solid var(--border-subtle);
+  box-shadow: rgba(255, 255, 255, 0);
+  min-width: 320px;
+  max-width: 380px;
+}
+
+.login-title {
+  margin: 0 0 6px;
+  font-size: 1.4rem;
+  letter-spacing: 0.03em;
+  text-align: center;
+}
+
+.login-subtitle {
+  margin: 0 0 14px;
+  font-size: 0.86rem;
+  color: #99b5f7;
+}
+
+.login-form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.login-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 0.8rem;
+}
+
+.login-button {
+  margin-top: 6px;
+  border-radius: 999px;
+  border: none;
+  padding: 8px 14px;
+  font-size: 0.9rem;
+  font-weight: 500;
+  color: #ffffff;
+  background: #01367a;
+  cursor: pointer;
+  transition: background 0.15s ease, transform 0.1s ease;
+}
+
+.login-button:hover {
+  background: #083165;
+  transform: translateY(-1px);
+}
+
+.login-error {
+  min-height: 16px;
+  margin: 4px 0 0;
+  font-size: 0.8rem;
+  color: var(--danger);
+}
+
+.login-footer-brand {
+  position: absolute;
+  bottom: 20px;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 0.8rem;
+  color: #ffffff;
+}
+
+/* Diseno 2 (index.html): login sin foto */
+body.login-design-2 {
+  background: #eef2ff;
+}
+
+body.login-design-2 .login-overlay {
+  background: #e7e7e7;
+}
+
+body.login-design-2 .login-brand-logo {
+  display: none;
+}
+
+body.login-design-2 .login-card {
+  background: #d5d3d3;
+  min-width: 360px;
+  max-width: 420px;
+  padding: 28px 28px 22px;
+}
+
+body.login-design-2 .login-title {
+  color: #31305a;
+  font-size: 1.55rem;
+}
+
+body.login-design-2 .login-logo {
+  position: fixed;
+  top: 24px;
+  left: 24px;
+  z-index: 101;
+  width: 145px;
+  margin: 0;
+  border-radius: 0;
+}
+
+body.login-design-2 .login-subtitle {
+  color: #555461;
+  text-align: center;
+}
+
+body.login-design-2 .login-form label {
+  color: #000000;
+  font-weight: 600;
+}
+
+body.login-design-2 .login-form input {
+  margin-top: 4px;
+  border: 1px solid #cbd5e1;
+  border-radius: 12px;
+  padding: 10px 12px;
+  font-size: 0.88rem;
+  color: #0f172a;
+  background: #f8fafc;
+  outline: none;
+}
+
+body.login-design-2 .login-form input:focus {
+  border-color: #6366f1;
+  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.18);
+}
+
+body.login-design-2 .login-button {
+  margin-top: 10px;
+  padding: 10px 14px;
+  font-weight: 500;
+  background: #31305a;
+}
+
+body.login-design-2 .login-button:hover {
+  background: #3730a3;
+}
+
+body.login-design-2 .login-footer-brand {
+  color: #000000;
+  font-weight: 600;
+}
+
+.app-header {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 22px 40px;
+  background: #ffffff;
+  backdrop-filter: blur(24px);
+  border-bottom: none;
+}
+
+.app-header h1 {
+  margin: 0;
+  font-size: 1.6rem;
+  letter-spacing: 0.03em;
+  background: linear-gradient(to right, #31305a, #31305a);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+.app-header-logo {
+  height: 40px;
+  width: auto;
+  object-fit: contain;
+  flex-shrink: 0;
+}
+
+/* Asegurar visibilidad del texto "Operador" debajo del header (admin.html) */
+.admin-operator-title {
+  position: relative;
+  z-index: 5;
+}
+
+.app-header p {
+  margin: 4px 0 0;
+  color: var(--text-soft);
+  font-size: 0.9rem;
+}
+
+/* Layout */
+
+.layout {
+  flex: 1;
+  display: grid;
+  grid-template-columns: minmax(0, 1.4fr) minmax(0, 1.6fr);
+  grid-template-rows: auto auto;
+  align-content: start;
+  gap: 18px 4px;
+  padding: 24px 36px 32px;
+  min-height: 1100px;
+  max-width: 1800px;
+  margin: 0 auto;
+}
+
+/* Configuraciones exclusivas para el usuario local */
+.role-local .layout {
+  grid-template-columns: 224px 1fr;
+  gap: 0 4px;
+  /* Sin min-height forzado: la página solo crece con el contenido */
+  padding: 18px 32px 120px;
+  min-height: 0;
+  margin: 10px 0 0;
+  --layout-padding-left: 32px;
+}
+
+/*
+ * portal.html: primer frame antes de app.js — el HTML por defecto parece vista admin (tabla motivo vacía,
+ * grid con min-height alto). Con role-local aplicado en el <body> al abrir (script al inicio de portal.html),
+ * el selector gana al display:none inline del #motivoSelectWrap.
+ */
+body.role-local #motivoTableWrap {
+  display: none !important;
+}
+body.role-local #motivoSelectWrap {
+  display: block !important;
+}
+
+/*
+ * portal (rol local): .app-root y main tienen flex:1 en reglas base → llenan la ventana y el footer
+ * queda abajo del viewport con un hueco enorme (parece “en medio”). Forzar altura al contenido.
+ */
+body.role-local {
+  justify-content: flex-start;
+  align-items: stretch;
+}
+
+body.role-local #appRoot.app-root {
+  flex: 0 0 auto !important;
+  min-height: 0 !important;
+  height: auto !important;
+}
+
+body.role-local main.layout {
+  flex: 0 0 auto !important;
+  flex-grow: 0 !important;
+  min-height: 0 !important;
+  height: auto !important;
+}
+
+body.role-local .app-footer {
+  flex: 0 0 auto;
+  margin-top: 50px;
+  padding: 10px 24px 16px;
+}
+
+/*
+ * admin / maestro: pie al fondo de la ventana aunque no haya operador seleccionado.
+ * .admin-footer-spacer crece (flex:1) y deja mín. 50px antes del pie cuando hay mucho contenido.
+ */
+body.role-admin #appRoot.app-root,
+body.role-maestro #appRoot.app-root {
+  min-height: 100vh;
+}
+
+.admin-footer-spacer {
+  flex: 1 1 auto;
+  min-height: 50px;
+}
+
+body.role-admin .app-footer,
+body.role-maestro .app-footer {
+  flex: 0 0 auto;
+  margin-top: 0;
+  padding: 10px 24px 16px;
+}
+
+/* Barra de bienvenida a pantalla completa (debajo del header) */
+#welcomeMessageCard {
+  display: none;
+}
+
+.role-local #welcomeMessageCard {
+  display: block;
+  background: #ffffff;
+  padding: 20px 40px 18px;
+}
+
+.role-local #welcomeMessageCard .welcome-content {
+  max-width: 1100px;
+  margin: 0;
+}
+
+.role-local #welcomeMessageCard .welcome-content h2 {
+  margin: 0 0 8px 0;
+  font-size: 1.3rem;
+  font-weight: 600;
+  color: #000000;
+}
+
+.role-local #welcomeMessageCard .welcome-content p {
+  margin: 0;
+  font-size: 0.95rem;
+  line-height: 1.5;
+  color: #000000;
+}
+
+/* Fila media: Motivo | Card vacaciones | Autorizaciones en la misma línea */
+.layout-middle-row {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-direction: row;
+  align-items: stretch;
+  gap: 18px;
+  position: relative;
+}
+
+.role-local .layout-middle-row {
+  align-items: flex-start; /* evita que se estire verticalmente el recuadro de Fech. Ingr. cuando aparecen otras cards */
+  margin-top: -40px;      /* sube toda la fila (Motivo + vacaciones) hacia el recuadro de la foto */
+  margin-bottom: 0;
+  /* #estatusPermisoBlock es position:absolute y no suma altura; reservamos espacio para que no solape el footer */
+  padding-bottom: 170px;
+}
+/* Motivo de ausencia: 2ª columna del layout; alinear bordes con recuadro "Sin foto" */
+.card-motivo-ausencia {
+  width: 715px;
+  max-width: none;
+  height: 200px;
+  margin-top: 10px;
+  margin-left: -180px;
+}
+
+/* Configuraciones exclusivas para el usuario local */
+.role-local .card-motivo-ausencia {
+  flex: 0 0 auto;
+  width: 240px;
+  height: 89px; /*tamaño original del recuadro para usuario local */
+  margin: 0;
+  margin-left: calc(var(--layout-padding-left, 32px) + 100px);
+}
+
+/* Datos del operador: ahora en fila media (1.er slot).
+   Margen izquierdo 10px para quedar al ras con el recuadro "Sin foto" (mismo 10px).
+   Aquí dibujamos el recuadro completo (margen negro) que envuelve título + tabla. */
+.layout-middle-row > #datosOperadorCard {
+  flex: 0 0 auto;
+  width: 200px;
+  max-width: 200px;
+  margin: 0;
+  margin-left: 10px;
+  margin-right: 0;
+  background: transparent;
+  border: 1px solid #000000; /* margen negro alrededor de Datos del operador + tabla */
+  box-shadow: none;
+  padding: 0;
+  border-radius: 0;
+  overflow: visible;
+}
+.layout-middle-row > #datosOperadorCard::before {
+  display: none;
+}
+
+/* Usuario local: posición vertical del bloque "Datos del operador"
+   (mover TODO el recuadro, sin estirar la primera fila de la tabla) */
+.role-local .layout-middle-row > #datosOperadorCard {
+  margin-top: 29px;  /* ajuste fino hacia abajo */
+}
+
+/* (Reglas específicas de layout para Estatus del permiso eliminadas) */
+
+
+/* Card */
+
+.card {
+  position: relative;
+  background: #31305a;
+  border-radius: var(--radius-lg);
+  padding: 18px 18px 12px;
+  border: 1px solid #ffffff00;
+  box-shadow: #31305a;
+  overflow: hidden;
+}
+
+.card::before {
+  content: "";
+  position: absolute;
+  inset: -40%;
+  background: radial-gradient(
+    circle at 0 0,
+    rgba(56, 189, 248, 0.1),
+    transparent 55%
+  );
+  opacity: 0.7;
+  pointer-events: none;
+}
+
+.card-header {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 10px;
+}
+
+.card-header h2 {
+  margin: 0;
+  font-size: 0.9rem;
+}
+
+/* Quitar negritas solo al título "Motivo de ausencia" */
+#motivoSection .card-header h2 {
+  font-weight: normal;
+  margin-top: -4px; /* sube solo el texto del título, sin mover el selector */
+}
+
+/* Card de la foto: sin recuadro azul; solo el recuadro "Foto del operador" sobre fondo blanco */
+.operator-card {
+  width: fit-content;
+  min-width: 220px;
+  min-height: 220px;
+  background: transparent;
+  border: none;
+  box-shadow: none;
+  padding: 0;
+}
+.operator-card::before {
+  display: none;
+}
+
+/* admin.html: evitar "recuadro" translúcido bajo los filtros (fallback) */
+#adminOperatorPhotoCard::before {
+  display: none !important;
+}
+
+/* Etiqueta "Foto del operador" sobre el recuadro */
+.operator-photo-label {
+  margin: 0 0 8px 0;
+  font-size: 0.9rem;
+  font-weight: 500;
+  color: var(--text);
+}
+
+/*
+ * Recuadro "Sin foto". Color del borde: --operator-frame-border en :root.
+ *
+ * Por qué cambian las esquinas al modificar el recuadro invisible (operator-card):
+ * Al cambiar min-width/min-height del contenedor invisible, el layout (grid/flex)
+ * recalcula la posición del recuadro visible. Si queda en coordenadas subpixel
+ * (ej. left: 0.5px), el navegador dibuja los bordes con anti-aliasing y una o más
+ * esquinas pueden verse transparentes. La superior izquierda suele ser la más
+ * afectada porque es la primera que se pinta y donde el recorte/overflow del
+ * contenedor puede dejar un píxel a medias. Se parcha solo esa esquina con ::before.
+ */
+.operator-extra-wrap {
+  position: relative;
+  width: 200px;
+  height: 200px;
+  border-radius: 0;
+  border: 1px solid var(--operator-frame-border);
+  box-shadow: none;
+  background: #ffffff;
+  overflow: hidden;
+  outline: none !important;
+  -webkit-tap-highlight-color: transparent;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  appearance: none;
+  margin-left: 10px;
+  margin-top: 10px;
+}
+/* Parche solo esquina superior izquierda: relleno opaco para evitar transparencia por subpixel */
+.operator-extra-wrap::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 4px;
+  height: 4px;
+  background: #ffffff;
+  z-index: 1;
+  pointer-events: none;
+}
+.operator-extra-wrap:focus,
+.operator-extra-wrap:focus-visible,
+.operator-extra-wrap:focus-within {
+  outline: none !important;
+  border: 1px solid var(--operator-frame-border);
+  box-shadow: none;
+}
+.operator-extra-wrap *,
+.operator-extra-wrap *:focus,
+.operator-extra-wrap *:focus-visible {
+  outline: none !important;
+  box-shadow: none;
+  -webkit-tap-highlight-color: transparent;
+}
+.operator-extra-wrap .operator-photo {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+  position: absolute;
+  inset: 0;
+  border: none !important;
+  outline: none !important;
+}
+.operator-extra-wrap .operator-photo[src=""],
+.operator-extra-wrap .operator-photo:not([src]) {
+  display: none;
+}
+/* Input de archivo para foto (oculto pero ocupa el área para clics) */
+.operator-photo-input {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  cursor: pointer;
+  pointer-events: auto; /* permite click del usuario sobre el recuadro */
+}
+.operator-extra-wrap .operator-photo-placeholder {
+  position: absolute;
+  inset: 0;
+  background: transparent;
+  border: none !important;
+  outline: none !important;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.85rem;
+  color: var(--text-soft);
+  font-style: italic;
+  pointer-events: none; /* permite que el click lo tome el recuadro (operatorPhotoWrap) */
+}
+.operator-extra-wrap:has(.operator-photo[src]:not([src=""])) .operator-photo-placeholder {
+  display: none;
+}
+
+.card-header .subtitle {
+  margin: 0;
+  font-size: 0.82rem;
+  color: var(--text-soft);
+}
+
+.operator-detail {
+  padding-top: 0;
+}
+
+/* Tabla Datos del operador: 2 columnas, 5 filas.
+   Márgenes al ras con el recuadro "Sin foto" (10px izquierda, mismo ancho 200px). */
+.operator-detail-table-wrap {
+  background: transparent;
+  border: none;
+  box-shadow: none;
+  margin-left: 0;
+  margin-right: 0;
+  margin-top: 0; /* la tabla vuelve a pegarse al borde superior del recuadro */
+}
+
+.operator-detail-table {
+  width: 100%;
+  max-width: 200px;
+  table-layout: fixed;
+  border-collapse: collapse;
+  font-size: 0.74rem; /* letras aún más pequeñas para compactar más */
+  color: #000000;
+  background: #ffffff;
+  border: none; /* el borde externo lo lleva el wrapper */
+  box-sizing: border-box; /* Hace que el ancho incluya el borde, alineando con el recuadro de la foto */
+}
+
+.operator-detail-table .operator-detail-header {
+  padding: 4px 6px;
+  text-align: center;
+  font-weight: 600;
+  border-bottom: 1px solid #000000;
+}
+
+.operator-detail-table td {
+  padding: 0; /* filas lo más bajas posible */
+  vertical-align: top;
+  border: none;
+  background: #ffffff;
+}
+
+/* Reducir ligeramente la altura de la fila de "ID" sin mover la tabla completa */
+.operator-detail-table tbody tr:first-child td {
+  padding-top: 4px;
+  padding-bottom: 4px;
+  line-height: normal;
+}
+
+.operator-detail-table td.operator-detail-label {
+  color: #000000;
+  font-weight: 600;
+  white-space: nowrap;
+  width: 38%;
+  min-width: 6.5rem;
+  padding-left: 4px;
+  padding-right: 8px;
+  padding-top: 4px;
+  padding-bottom: 4px;
+  box-sizing: border-box;
+}
+
+.operator-detail-table td:last-child {
+  width: 62%;
+  word-break: break-word;
+  padding-left: 8px;
+  padding-right: 4px;
+  padding-top: 4px;
+  padding-bottom: 4px;
+}
+
+
+/* Líneas horizontales para separar las filas de la tabla de Datos del operador.
+   Color: --operator-detail-row-border (no afecta la tabla Estatus del permiso). */
+.operator-detail-table tr + tr td {
+  border-top: 1px solid var(--operator-detail-row-border);
+}
+
+/* Fuente específica y color para el título y datos de "Datos del operador" */
+#datosOperadorCard .card-header h2,
+#datosOperadorCard .operator-detail-table {
+  font-family: "Segoe UI", system-ui, -apple-system, BlinkMacSystemFont,
+    "Helvetica Neue", Arial, sans-serif;
+  color: #000000;
+}
+
+/* Ajuste sutil de posición del texto "Datos del operador" respecto a la tabla */
+#datosOperadorCard .card-header h2 {
+  margin-left: 8px;
+  margin-top: 2px;
+}
+
+/* Ocultar por completo el encabezado "Datos del operador" para quitar el recuadro/espacio superior */
+#datosOperadorCard .card-header {
+  display: none;
+}
+
+.operator-detail-row {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+
+.operator-field {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+  border-radius: 999px;
+  background: rgba(87, 92, 105);
+  border: 1px solid var(--border-subtle);
+  font-size: 0.82rem;
+}
+
+.filters {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-top: 30px;
+}
+
+/* Inputs */
+
+input[type="text"],
+input[type="password"],
+select {
+  border-radius: 999px;
+  border: 1px solid rgba(148, 163, 184, 0.4);
+  background: rgba(255, 255, 255, 0.9);
+  color: #000000;
+  padding: 6px 12px;
+  font-size: 0.85rem;
+  outline: none;
+  transition: border-color 0.16s ease, box-shadow 0.16s ease,
+    background-color 0.16s ease;
+}
+
+.card-header-motivo {
+  flex-wrap: wrap;
+  align-items: flex-start;
+  padding-top: 2px; /* acerca el título al borde superior sin pegarlo */
+}
+
+/* Ajuste específico: subir ligeramente el título "Motivo de ausencia" dentro de su card */
+#motivoSection .card-header {
+  margin-top: -6px;
+}
+
+/* (Sin overrides de padding vertical en #motivoSection: usa el padding original de .card) */
+
+/* Mantener negritas en el texto "Motivo de ausencia" (usar peso de título por defecto) */
+
+/* Recuadro Motivo de ausencia (cuando está en fila media; si se vuelve a mover) */
+.layout-middle-row > #motivoSection {
+  flex: 0 0 auto;
+  max-width: 200px;
+  margin: 0;
+}
+
+.role-local .layout-middle-row > #motivoSection {
+  margin-left: calc(var(--layout-padding-left, 32px) + 50px);
+  margin-top: -170px;
+}
+
+/* Historial de solicitudes: debajo de main, encima del pie (mismo patrón que admin) */
+.role-local .portal-history-section {
+  margin: 74px 32px 0 48px;
+  max-width: min(1180px, calc(100vw - 64px));
+  width: min(1180px, calc(100vw - 64px));
+  box-sizing: border-box;
+}
+
+.role-local .portal-history-section .admin-history-toggle-btn {
+  margin-top: 0;
+}
+
+/* Portal — Diseño 3: historial en tabla (Diseño 1 = sin clases de layout) */
+.role-local .portal-history-section.portal-history-layout--table .admin-history-list {
+  display: block;
+  border-left: none;
+  padding-left: 0;
+  margin-left: 0;
+}
+
+/* Portal — Diseño 4: bandas compactas */
+.role-local .portal-history-section.portal-history-layout--rows .admin-history-list {
+  display: block;
+  border-left: none;
+  padding-left: 0;
+  margin-left: 0;
+}
+
+.portal-history-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: 100%;
+}
+
+.portal-history-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px 16px;
+  padding: 14px 16px;
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  border-left: 4px solid #2563eb;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.05);
+}
+
+.portal-history-row:nth-child(even) {
+  background: #f8fafc;
+}
+
+.portal-history-row-body {
+  flex: 1 1 220px;
+  min-width: 0;
+}
+
+.portal-history-row-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px 12px;
+  margin-bottom: 6px;
+}
+
+.portal-history-row-date {
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: #475569;
+  white-space: nowrap;
+}
+
+.portal-history-row-tipo {
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #64748b;
+}
+
+.portal-history-row-motive {
+  font-size: 0.88rem;
+  font-weight: 700;
+  color: #0f172a;
+}
+
+.portal-history-row-summary {
+  margin: 0;
+  font-size: 0.82rem;
+  line-height: 1.4;
+  color: #334155;
+  word-break: break-word;
+}
+
+.portal-history-row-side {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 8px;
+  min-width: 120px;
+}
+
+.portal-history-row-status .admin-history-item-approved,
+.portal-history-row-status .admin-history-item-rejected,
+.portal-history-row-status .admin-history-item-pendiente,
+.portal-history-row-status .admin-history-item-na {
+  display: inline-block;
+}
+
+.portal-history-row-pdf-btn {
+  font-size: 0.78rem;
+  padding: 6px 12px;
+}
+
+@media (max-width: 520px) {
+  .portal-history-row-side {
+    flex-direction: row;
+    align-items: center;
+    justify-content: flex-start;
+    width: 100%;
+  }
+}
+
+/* Portal — Diseño 5: rejilla de mini-tarjetas */
+.role-local .portal-history-section.portal-history-layout--grid .admin-history-list {
+  display: block;
+  border-left: none;
+  padding-left: 0;
+  margin-left: 0;
+}
+
+.portal-history-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 14px;
+  width: 100%;
+}
+
+.portal-history-grid-card {
+  display: flex;
+  flex-direction: column;
+  min-height: 100%;
+  padding: 14px 14px 12px;
+  background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
+  border: 1px solid #e2e8f0;
+  border-radius: 14px;
+  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.06);
+}
+
+.portal-history-grid-card-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.portal-history-grid-date {
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: #64748b;
+}
+
+.portal-history-grid-tipo {
+  font-size: 0.68rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #0f172a;
+  background: #e2e8f0;
+  padding: 3px 8px;
+  border-radius: 999px;
+}
+
+.portal-history-grid-motive {
+  margin: 0 0 8px;
+  font-size: 1rem;
+  font-weight: 800;
+  line-height: 1.25;
+  color: #0f172a;
+}
+
+.portal-history-grid-summary {
+  flex: 1 1 auto;
+  margin: 0 0 12px;
+  font-size: 0.8rem;
+  line-height: 1.4;
+  color: #475569;
+  word-break: break-word;
+}
+
+.portal-history-grid-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: auto;
+  padding-top: 10px;
+  border-top: 1px solid #e2e8f0;
+}
+
+.portal-history-grid-status .admin-history-item-approved,
+.portal-history-grid-status .admin-history-item-rejected,
+.portal-history-grid-status .admin-history-item-pendiente,
+.portal-history-grid-status .admin-history-item-na {
+  display: inline-block;
+}
+
+.portal-history-grid-pdf-btn {
+  font-size: 0.76rem;
+  padding: 6px 12px;
+}
+
+/* Portal — Diseño 2: columna de fecha + contenido (--design2 o --split) */
+.role-local .portal-history-section.portal-history-layout--design2 .admin-history-list,
+.role-local .portal-history-section.portal-history-layout--split .admin-history-list {
+  display: block;
+  border-left: none;
+  padding-left: 0;
+  margin-left: 0;
+}
+
+.portal-history-split {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  width: 100%;
+  border-radius: 12px;
+  border: 1px solid #e2e8f0;
+  overflow: hidden;
+  background: #ffffff;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.06);
+}
+
+.portal-history-split-item {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: stretch;
+  gap: 0;
+  border-bottom: 1px solid #e2e8f0;
+}
+
+.portal-history-split-item:last-child {
+  border-bottom: none;
+}
+
+.portal-history-split-aside {
+  flex: 0 0 88px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 14px 10px;
+  background: linear-gradient(180deg, #f1f5f9 0%, #e2e8f0 100%);
+  border-right: 1px solid #e2e8f0;
+  text-align: center;
+}
+
+.portal-history-split-day {
+  font-size: 1.75rem;
+  font-weight: 800;
+  line-height: 1;
+  color: #0f172a;
+  letter-spacing: -0.02em;
+}
+
+.portal-history-split-my {
+  margin-top: 4px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: capitalize;
+  color: #475569;
+  line-height: 1.2;
+}
+
+.portal-history-split-time {
+  margin-top: 6px;
+  font-size: 0.7rem;
+  font-weight: 600;
+  color: #64748b;
+}
+
+.portal-history-split-main {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 12px 14px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.portal-history-split-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px 12px;
+}
+
+.portal-history-split-tipo {
+  font-size: 0.68rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #64748b;
+}
+
+.portal-history-split-motive {
+  font-size: 0.95rem;
+  font-weight: 800;
+  color: #0f172a;
+}
+
+.portal-history-split-summary {
+  margin: 0;
+  font-size: 0.82rem;
+  line-height: 1.45;
+  color: #334155;
+  word-break: break-word;
+}
+
+.portal-history-split-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 4px;
+}
+
+.portal-history-split-status .admin-history-item-approved,
+.portal-history-split-status .admin-history-item-rejected,
+.portal-history-split-status .admin-history-item-pendiente,
+.portal-history-split-status .admin-history-item-na {
+  display: inline-block;
+}
+
+.portal-history-split-pdf-btn {
+  font-size: 0.76rem;
+  padding: 6px 12px;
+}
+
+@media (max-width: 420px) {
+  .portal-history-split-item {
+    flex-wrap: wrap;
+  }
+
+  .portal-history-split-aside {
+    flex: 1 1 100%;
+    flex-direction: row;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 8px 16px;
+    padding: 10px 12px;
+    border-right: none;
+    border-bottom: 1px solid #e2e8f0;
+  }
+
+  .portal-history-split-day {
+    font-size: 1.35rem;
+  }
+
+  .portal-history-split-my,
+  .portal-history-split-time {
+    margin-top: 0;
+  }
+}
+
+/* Portal — Diseño 6: libro mayor / registro (--ledger) */
+.role-local .portal-history-section.portal-history-layout--ledger .admin-history-list {
+  display: block;
+  border-left: none;
+  padding-left: 0;
+  margin-left: 0;
+}
+
+.portal-history-ledger {
+  width: 100%;
+  background: #fffef7;
+  border: 1px solid #d6d3cd;
+  border-radius: 10px;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.85), 0 1px 3px rgba(28, 25, 23, 0.08);
+  overflow: hidden;
+}
+
+.portal-history-ledger-item {
+  display: flex;
+  align-items: stretch;
+  gap: 0;
+  border-bottom: 1px dashed #c9c4bb;
+}
+
+.portal-history-ledger-item:last-child {
+  border-bottom: none;
+}
+
+.portal-history-ledger-ref {
+  flex: 0 0 2.5rem;
+  padding: 12px 8px;
+  font-size: 0.75rem;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+  color: #78716c;
+  background: linear-gradient(180deg, #f5f0e6 0%, #ebe4d6 100%);
+  border-right: 1px solid #d6d3cd;
+  line-height: 1.2;
+}
+
+.portal-history-ledger-body {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 10px 14px 12px;
+}
+
+.portal-history-ledger-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px 12px;
+  margin-bottom: 4px;
+}
+
+.portal-history-ledger-time {
+  font-family: ui-monospace, "Cascadia Code", "Consolas", monospace;
+  font-size: 0.74rem;
+  font-weight: 600;
+  color: #44403c;
+  letter-spacing: -0.02em;
+}
+
+.portal-history-ledger-tipo {
+  font-size: 0.65rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #57534e;
+}
+
+.portal-history-ledger-motive {
+  font-size: 0.92rem;
+  font-weight: 800;
+  color: #1c1917;
+  margin-bottom: 4px;
+}
+
+.portal-history-ledger-summary {
+  margin: 0 0 8px;
+  font-size: 0.8rem;
+  line-height: 1.4;
+  color: #44403c;
+  word-break: break-word;
+}
+
+.portal-history-ledger-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.portal-history-ledger-status .admin-history-item-approved,
+.portal-history-ledger-status .admin-history-item-rejected,
+.portal-history-ledger-status .admin-history-item-pendiente,
+.portal-history-ledger-status .admin-history-item-na {
+  display: inline-block;
+}
+
+.portal-history-ledger-pdf-btn {
+  font-size: 0.72rem;
+  padding: 5px 10px;
+  font-family: ui-monospace, "Cascadia Code", "Consolas", monospace;
+}
+
+@media (max-width: 420px) {
+  .portal-history-ledger-item {
+    flex-direction: column;
+  }
+
+  .portal-history-ledger-ref {
+    flex: 0 0 auto;
+    width: 100%;
+    border-right: none;
+    border-bottom: 1px solid #d6d3cd;
+    padding: 8px 12px;
+    text-align: left;
+  }
+}
+
+/* Portal — Diseño 7: hilos / conversación (--thread) */
+.role-local .portal-history-section.portal-history-layout--thread .admin-history-list {
+  display: block;
+  border-left: none;
+  padding-left: 0;
+  margin-left: 0;
+}
+
+.portal-history-thread {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  width: 100%;
+}
+
+.portal-history-thread-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  max-width: 100%;
+}
+
+.portal-history-thread-avatar {
+  flex: 0 0 42px;
+  width: 42px;
+  height: 42px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1rem;
+  font-weight: 800;
+  color: #ffffff;
+  background: linear-gradient(145deg, #6366f1 0%, #4f46e5 100%);
+  box-shadow: 0 2px 6px rgba(79, 70, 229, 0.35);
+}
+
+.portal-history-thread-bubble {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 12px 14px 12px;
+  background: linear-gradient(180deg, #f8fafc 0%, #f1f5f9 100%);
+  border: 1px solid #e2e8f0;
+  border-radius: 4px 16px 16px 16px;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.06);
+}
+
+.portal-history-thread-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px 10px;
+  margin-bottom: 6px;
+}
+
+.portal-history-thread-time {
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: #64748b;
+}
+
+.portal-history-thread-tipo {
+  font-size: 0.65rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #94a3b8;
+}
+
+.portal-history-thread-motive {
+  font-size: 0.95rem;
+  font-weight: 800;
+  color: #0f172a;
+  margin-bottom: 4px;
+}
+
+.portal-history-thread-summary {
+  margin: 0 0 10px;
+  font-size: 0.82rem;
+  line-height: 1.45;
+  color: #334155;
+  word-break: break-word;
+}
+
+.portal-history-thread-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.portal-history-thread-status .admin-history-item-approved,
+.portal-history-thread-status .admin-history-item-rejected,
+.portal-history-thread-status .admin-history-item-pendiente,
+.portal-history-thread-status .admin-history-item-na {
+  display: inline-block;
+}
+
+.portal-history-thread-pdf-btn {
+  font-size: 0.76rem;
+  padding: 6px 12px;
+}
+
+@media (max-width: 380px) {
+  .portal-history-thread-item {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .portal-history-thread-avatar {
+    flex: 0 0 auto;
+  }
+}
+
+/* Portal — Diseño 8: paneles cabecera oscura (--panel) */
+.role-local .portal-history-section.portal-history-layout--panel .admin-history-list {
+  display: block;
+  border-left: none;
+  padding-left: 0;
+  margin-left: 0;
+}
+
+.portal-history-panel-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: 100%;
+}
+
+.portal-history-panel-card {
+  border-radius: 12px;
+  overflow: hidden;
+  border: 1px solid #1e293b;
+  background: #ffffff;
+  box-shadow: 0 4px 14px rgba(15, 23, 42, 0.12);
+}
+
+.portal-history-panel-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 12px;
+  padding: 10px 14px;
+  background: linear-gradient(90deg, #1e293b 0%, #334155 100%);
+  color: #f8fafc;
+}
+
+.portal-history-panel-time {
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: #e2e8f0;
+}
+
+.portal-history-panel-tipo {
+  font-size: 0.68rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #94a3b8;
+}
+
+.portal-history-panel-body {
+  padding: 12px 14px 14px;
+}
+
+.portal-history-panel-motive {
+  margin: 0 0 8px;
+  font-size: 1.02rem;
+  font-weight: 800;
+  line-height: 1.25;
+  color: #0f172a;
+}
+
+.portal-history-panel-summary {
+  margin: 0 0 12px;
+  font-size: 0.82rem;
+  line-height: 1.45;
+  color: #475569;
+  word-break: break-word;
+}
+
+.portal-history-panel-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.portal-history-panel-status .admin-history-item-approved,
+.portal-history-panel-status .admin-history-item-rejected,
+.portal-history-panel-status .admin-history-item-pendiente,
+.portal-history-panel-status .admin-history-item-na {
+  display: inline-block;
+}
+
+.portal-history-panel-pdf-btn {
+  font-size: 0.76rem;
+  padding: 6px 12px;
+}
+
+/* Portal — Diseño 9: línea temporal con raíl (--rail) */
+.role-local .portal-history-section.portal-history-layout--rail .admin-history-list {
+  display: block;
+  border-left: none;
+  padding-left: 0;
+  margin-left: 0;
+}
+
+.portal-history-rails {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  width: 100%;
+  padding-left: 4px;
+}
+
+.portal-history-rail-item {
+  display: flex;
+  align-items: stretch;
+  gap: 14px;
+  position: relative;
+}
+
+.portal-history-rail-axis {
+  flex: 0 0 22px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  position: relative;
+}
+
+.portal-history-rail-dot {
+  flex: 0 0 auto;
+  width: 14px;
+  height: 14px;
+  margin-top: 6px;
+  border-radius: 50%;
+  background: linear-gradient(145deg, #38bdf8 0%, #0ea5e9 100%);
+  border: 3px solid #ffffff;
+  box-shadow: 0 0 0 2px #cbd5e1;
+  z-index: 1;
+}
+
+.portal-history-rail-item:not(:last-child) .portal-history-rail-axis::after {
+  content: "";
+  position: absolute;
+  top: 22px;
+  bottom: -4px;
+  left: 50%;
+  width: 3px;
+  margin-left: -1.5px;
+  border-radius: 2px;
+  background: linear-gradient(180deg, #cbd5e1 0%, #e2e8f0 100%);
+  z-index: 0;
+}
+
+.portal-history-rail-card {
+  flex: 1 1 auto;
+  min-width: 0;
+  margin-bottom: 14px;
+  padding: 12px 14px 12px;
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.06);
+}
+
+.portal-history-rail-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px 12px;
+  margin-bottom: 6px;
+}
+
+.portal-history-rail-time {
+  font-size: 0.74rem;
+  font-weight: 700;
+  color: #64748b;
+}
+
+.portal-history-rail-tipo {
+  font-size: 0.65rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: #94a3b8;
+}
+
+.portal-history-rail-motive {
+  font-size: 0.95rem;
+  font-weight: 800;
+  color: #0f172a;
+  margin-bottom: 4px;
+}
+
+.portal-history-rail-summary {
+  margin: 0 0 10px;
+  font-size: 0.82rem;
+  line-height: 1.45;
+  color: #334155;
+  word-break: break-word;
+}
+
+.portal-history-rail-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.portal-history-rail-status .admin-history-item-approved,
+.portal-history-rail-status .admin-history-item-rejected,
+.portal-history-rail-status .admin-history-item-pendiente,
+.portal-history-rail-status .admin-history-item-na {
+  display: inline-block;
+}
+
+.portal-history-rail-pdf-btn {
+  font-size: 0.76rem;
+  padding: 6px 12px;
+}
+
+@media (max-width: 380px) {
+  .portal-history-rail-item {
+    gap: 10px;
+  }
+
+  .portal-history-rail-axis {
+    flex-basis: 18px;
+  }
+
+  .portal-history-rail-dot {
+    width: 12px;
+    height: 12px;
+    border-width: 2px;
+  }
+}
+
+/* Portal — Diseño 10: notas recordatorio (--notice) */
+.role-local .portal-history-section.portal-history-layout--notice .admin-history-list {
+  display: block;
+  border-left: none;
+  padding-left: 0;
+  margin-left: 0;
+}
+
+.portal-history-notice-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: 100%;
+}
+
+.portal-history-notice-item {
+  position: relative;
+  display: flex;
+  gap: 0;
+  padding: 0 0 0 12px;
+  background: linear-gradient(145deg, #fffbeb 0%, #fef3c7 55%, #fde68a 100%);
+  border: 1px solid #fbbf24;
+  border-left: 6px solid #d97706;
+  border-radius: 4px 12px 12px 4px;
+  box-shadow: 2px 3px 0 rgba(180, 83, 9, 0.12), 4px 8px 24px rgba(15, 23, 42, 0.08);
+}
+
+.portal-history-notice-pin {
+  flex: 0 0 8px;
+  margin: 14px 0 0 4px;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 30% 30%, #fca5a5, #b91c1c);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
+  opacity: 0.9;
+}
+
+.portal-history-notice-body {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 12px 14px 14px 8px;
+}
+
+.portal-history-notice-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px 12px;
+  margin-bottom: 6px;
+}
+
+.portal-history-notice-time {
+  font-size: 0.72rem;
+  font-weight: 800;
+  color: #92400e;
+}
+
+.portal-history-notice-tipo {
+  font-size: 0.65rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #b45309;
+}
+
+.portal-history-notice-motive {
+  font-size: 0.95rem;
+  font-weight: 900;
+  color: #78350f;
+  margin-bottom: 4px;
+  line-height: 1.25;
+}
+
+.portal-history-notice-summary {
+  margin: 0 0 10px;
+  font-size: 0.82rem;
+  line-height: 1.45;
+  color: #713f12;
+  word-break: break-word;
+}
+
+.portal-history-notice-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.portal-history-notice-status .admin-history-item-approved,
+.portal-history-notice-status .admin-history-item-rejected,
+.portal-history-notice-status .admin-history-item-pendiente,
+.portal-history-notice-status .admin-history-item-na {
+  display: inline-block;
+}
+
+.portal-history-notice-pdf-btn {
+  font-size: 0.76rem;
+  padding: 6px 12px;
+}
+
+@media (max-width: 380px) {
+  .portal-history-notice-item {
+    padding-left: 8px;
+  }
+
+  .portal-history-notice-pin {
+    margin-top: 12px;
+  }
+}
+
+/* Portal — Diseño 11: editorial minimal (--minimal) */
+.role-local .portal-history-section.portal-history-layout--minimal .admin-history-list {
+  display: block;
+  border-left: none;
+  padding-left: 0;
+  margin-left: 0;
+}
+
+.portal-history-minimal-stack {
+  width: 100%;
+  border-top: 1px solid #171717;
+}
+
+.portal-history-minimal-item {
+  padding: 18px 0 20px;
+  border-bottom: 1px solid #e5e5e5;
+}
+
+.portal-history-minimal-item:last-child {
+  border-bottom-color: #171717;
+}
+
+.portal-history-minimal-kicker {
+  margin: 0 0 6px;
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: #737373;
+}
+
+.portal-history-minimal-tipo {
+  color: #525252;
+}
+
+.portal-history-minimal-sep {
+  margin: 0 0.35em;
+  font-weight: 400;
+  color: #a3a3a3;
+}
+
+.portal-history-minimal-time {
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  color: #404040;
+}
+
+.portal-history-minimal-title {
+  margin: 0 0 8px;
+  font-size: 1.35rem;
+  font-weight: 800;
+  line-height: 1.2;
+  letter-spacing: -0.02em;
+  color: #0a0a0a;
+}
+
+.portal-history-minimal-lede {
+  margin: 0 0 14px;
+  font-size: 0.9rem;
+  line-height: 1.55;
+  color: #404040;
+  max-width: 62ch;
+  word-break: break-word;
+}
+
+.portal-history-minimal-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.portal-history-minimal-status .admin-history-item-approved,
+.portal-history-minimal-status .admin-history-item-rejected,
+.portal-history-minimal-status .admin-history-item-pendiente,
+.portal-history-minimal-status .admin-history-item-na {
+  display: inline-block;
+}
+
+.portal-history-minimal-pdf-btn {
+  font-size: 0.78rem;
+  padding: 6px 12px;
+  border-radius: 6px;
+}
+
+/* Portal — Diseño 12: cristal / glassmorphism (--glass) */
+.role-local .portal-history-section.portal-history-layout--glass .admin-history-list {
+  display: block;
+  border-left: none;
+  padding-left: 0;
+  margin-left: 0;
+}
+
+.portal-history-glass-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: 100%;
+  padding: 14px;
+  border-radius: 16px;
+  background: linear-gradient(125deg, #4f46e5 0%, #7c3aed 42%, #c026d3 78%, #db2777 100%);
+  box-shadow: 0 12px 40px rgba(76, 29, 149, 0.35);
+}
+
+.portal-history-glass-item {
+  border-radius: 14px;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.38);
+  background: rgba(255, 255, 255, 0.16);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.12), inset 0 1px 0 rgba(255, 255, 255, 0.35);
+}
+
+.portal-history-glass-inner {
+  padding: 14px 16px 12px;
+}
+
+.portal-history-glass-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px 12px;
+  margin-bottom: 8px;
+}
+
+.portal-history-glass-time {
+  font-size: 0.74rem;
+  font-weight: 700;
+  color: rgba(248, 250, 252, 0.92);
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+}
+
+.portal-history-glass-tipo {
+  font-size: 0.65rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: rgba(241, 245, 249, 0.75);
+}
+
+.portal-history-glass-motive {
+  margin: 0 0 6px;
+  font-size: 1.08rem;
+  font-weight: 800;
+  line-height: 1.25;
+  color: #ffffff;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
+}
+
+.portal-history-glass-summary {
+  margin: 0 0 12px;
+  font-size: 0.84rem;
+  line-height: 1.45;
+  color: rgba(248, 250, 252, 0.92);
+  word-break: break-word;
+}
+
+.portal-history-glass-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.portal-history-glass-status .admin-history-item-approved,
+.portal-history-glass-status .admin-history-item-rejected,
+.portal-history-glass-status .admin-history-item-pendiente,
+.portal-history-glass-status .admin-history-item-na {
+  display: inline-block;
+}
+
+.portal-history-glass-pdf-btn {
+  font-size: 0.76rem;
+  padding: 6px 14px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.92);
+  color: #4c1d95;
+  border: 1px solid rgba(255, 255, 255, 0.95);
+  font-weight: 700;
+}
+
+.portal-history-glass-pdf-btn:hover {
+  background: #ffffff;
+}
+
+@media (max-width: 380px) {
+  .portal-history-glass-stack {
+    padding: 10px;
+  }
+}
+
+/* Portal — Diseño 13: corporativo / studio (--studio): limpio, acento marca + verde */
+.role-local .portal-history-section.portal-history-layout--studio .admin-history-list {
+  display: block;
+  border-left: none;
+  padding-left: 0;
+  margin-left: 0;
+}
+
+.portal-history-studio {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  width: 100%;
+  padding: 4px 2px 2px;
+}
+
+.portal-history-studio-card {
+  margin: 0;
+  padding: 18px 20px 16px;
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 14px;
+  border-top: 3px solid #31305a;
+  box-shadow: 0 2px 12px rgba(49, 48, 90, 0.07), 0 1px 2px rgba(15, 23, 42, 0.04);
+}
+
+.portal-history-studio-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 14px;
+  margin-bottom: 10px;
+}
+
+.portal-history-studio-time {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: #64748b;
+  letter-spacing: 0.01em;
+}
+
+.portal-history-studio-tipo {
+  font-size: 0.68rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #31305a;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: rgba(49, 48, 90, 0.08);
+  border: 1px solid rgba(49, 48, 90, 0.12);
+}
+
+.portal-history-studio-motive {
+  margin: 0 0 8px;
+  font-size: 1.125rem;
+  font-weight: 700;
+  line-height: 1.3;
+  letter-spacing: -0.02em;
+  color: #0f172a;
+}
+
+.portal-history-studio-summary {
+  margin: 0 0 16px;
+  font-size: 0.875rem;
+  line-height: 1.55;
+  color: #475569;
+  max-width: 65ch;
+  word-break: break-word;
+}
+
+.portal-history-studio-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding-top: 4px;
+  border-top: 1px solid #f1f5f9;
+}
+
+.portal-history-studio-status .admin-history-item-approved,
+.portal-history-studio-status .admin-history-item-rejected,
+.portal-history-studio-status .admin-history-item-pendiente,
+.portal-history-studio-status .admin-history-item-na {
+  display: inline-block;
+}
+
+.portal-history-studio-pdf-btn {
+  font-size: 0.8rem;
+  font-weight: 700;
+  padding: 8px 16px;
+  border-radius: 8px;
+  color: #166534;
+  background: #f0fdf4;
+  border: 1px solid #22c55e;
+  box-shadow: none;
+}
+
+.portal-history-studio-pdf-btn:hover {
+  background: #dcfce7;
+  border-color: #16a34a;
+}
+
+@media (max-width: 420px) {
+  .portal-history-studio-card {
+    padding: 16px 16px 14px;
+  }
+}
+
+/* Portal — Diseño 14: dos columnas (--columns): panel fecha + contenido */
+.role-local .portal-history-section.portal-history-layout--columns .admin-history-list {
+  display: block;
+  border-left: none;
+  padding-left: 0;
+  margin-left: 0;
+}
+
+.portal-history-columns {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: 100%;
+}
+
+.portal-history-columns-item {
+  display: grid;
+  grid-template-columns: minmax(112px, 148px) minmax(0, 1fr);
+  gap: 0;
+  align-items: stretch;
+  border-radius: 14px;
+  overflow: hidden;
+  border: 1px solid #e2e8f0;
+  background: #ffffff;
+  box-shadow: 0 2px 10px rgba(15, 23, 42, 0.06);
+}
+
+.portal-history-columns-aside {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 14px 10px;
+  background: linear-gradient(165deg, #f8fafc 0%, #e2e8f0 100%);
+  border-right: 1px solid #e2e8f0;
+  text-align: center;
+}
+
+.portal-history-columns-day {
+  font-size: 2rem;
+  font-weight: 800;
+  line-height: 1;
+  color: #31305a;
+  letter-spacing: -0.03em;
+}
+
+.portal-history-columns-my {
+  margin-top: 6px;
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: capitalize;
+  color: #475569;
+  line-height: 1.2;
+}
+
+.portal-history-columns-clock {
+  margin-top: 8px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: #64748b;
+}
+
+.portal-history-columns-main {
+  padding: 14px 16px 14px;
+  min-width: 0;
+}
+
+.portal-history-columns-meta {
+  margin-bottom: 6px;
+}
+
+.portal-history-columns-tipo {
+  font-size: 0.65rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.09em;
+  color: #64748b;
+}
+
+.portal-history-columns-motive {
+  margin: 0 0 6px;
+  font-size: 1.05rem;
+  font-weight: 800;
+  line-height: 1.25;
+  color: #0f172a;
+}
+
+.portal-history-columns-summary {
+  margin: 0 0 12px;
+  font-size: 0.84rem;
+  line-height: 1.45;
+  color: #475569;
+  word-break: break-word;
+}
+
+.portal-history-columns-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.portal-history-columns-status .admin-history-item-approved,
+.portal-history-columns-status .admin-history-item-rejected,
+.portal-history-columns-status .admin-history-item-pendiente,
+.portal-history-columns-status .admin-history-item-na {
+  display: inline-block;
+}
+
+.portal-history-columns-pdf-btn {
+  font-size: 0.78rem;
+  font-weight: 700;
+  padding: 7px 14px;
+  border-radius: 8px;
+  color: #166534;
+  background: #f0fdf4;
+  border: 1px solid #22c55e;
+}
+
+.portal-history-columns-pdf-btn:hover {
+  background: #dcfce7;
+  border-color: #16a34a;
+}
+
+@media (max-width: 520px) {
+  .portal-history-columns-item {
+    grid-template-columns: 1fr;
+  }
+
+  .portal-history-columns-aside {
+    flex-direction: row;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 10px 20px;
+    border-right: none;
+    border-bottom: 1px solid #e2e8f0;
+    padding: 12px 12px;
+  }
+
+  .portal-history-columns-day {
+    font-size: 1.5rem;
+  }
+
+  .portal-history-columns-my,
+  .portal-history-columns-clock {
+    margin-top: 0;
+  }
+}
+
+/* Portal — Diseño 15: expediente manila (--dossier) */
+.role-local .portal-history-section.portal-history-layout--dossier .admin-history-list {
+  display: block;
+  border-left: none;
+  padding-left: 0;
+  margin-left: 0;
+}
+
+.portal-history-dossier {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  width: 100%;
+  padding: 16px 14px;
+  border-radius: 14px;
+  background: linear-gradient(165deg, #ebe4d6 0%, #d8cfc0 55%, #cdc3b0 100%);
+  border: 1px solid #b8a995;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.45), 0 4px 18px rgba(60, 48, 30, 0.12);
+}
+
+.portal-history-dossier-sheet {
+  position: relative;
+  display: flex;
+  align-items: stretch;
+  gap: 0;
+  margin: 0;
+  padding: 0;
+  background: #fffef6;
+  border: 1px solid #c9bfb0;
+  border-radius: 6px;
+  box-shadow: 2px 3px 0 rgba(55, 48, 40, 0.12), 3px 6px 16px rgba(30, 24, 18, 0.08);
+}
+
+.portal-history-dossier-tab {
+  flex: 0 0 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.95rem;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  color: #fafaf9;
+  background: linear-gradient(180deg, #57534e 0%, #44403c 100%);
+  border-radius: 5px 0 0 5px;
+  border-right: 1px solid #a8a29e;
+}
+
+.portal-history-dossier-body {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 12px 14px 14px 14px;
+}
+
+.portal-history-dossier-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px 12px;
+  margin-bottom: 6px;
+}
+
+.portal-history-dossier-time {
+  font-size: 0.74rem;
+  font-weight: 700;
+  color: #57534e;
+}
+
+.portal-history-dossier-tipo {
+  font-size: 0.65rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #78716c;
+}
+
+.portal-history-dossier-motive {
+  margin: 0 0 6px;
+  font-size: 1.05rem;
+  font-weight: 800;
+  line-height: 1.25;
+  color: #292524;
+}
+
+.portal-history-dossier-summary {
+  margin: 0 0 12px;
+  font-size: 0.84rem;
+  line-height: 1.45;
+  color: #44403c;
+  word-break: break-word;
+}
+
+.portal-history-dossier-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding-top: 8px;
+  border-top: 1px dashed #d6d3d1;
+}
+
+.portal-history-dossier-status .admin-history-item-approved,
+.portal-history-dossier-status .admin-history-item-rejected,
+.portal-history-dossier-status .admin-history-item-pendiente,
+.portal-history-dossier-status .admin-history-item-na {
+  display: inline-block;
+}
+
+.portal-history-dossier-pdf-btn {
+  font-size: 0.78rem;
+  font-weight: 700;
+  padding: 6px 12px;
+  border-radius: 6px;
+  color: #292524;
+  background: #f5f5f4;
+  border: 1px solid #a8a29e;
+}
+
+.portal-history-dossier-pdf-btn:hover {
+  background: #e7e5e4;
+  border-color: #78716c;
+}
+
+@media (max-width: 420px) {
+  .portal-history-dossier {
+    padding: 12px 10px;
+  }
+
+  .portal-history-dossier-sheet {
+    flex-direction: column;
+  }
+
+  .portal-history-dossier-tab {
+    flex: 0 0 auto;
+    width: 100%;
+    border-radius: 5px 5px 0 0;
+    border-right: none;
+    border-bottom: 1px solid #a8a29e;
+    padding: 8px;
+  }
+}
+
+/* Portal — Diseño 16: relieve / inset (--inset) */
+.role-local .portal-history-section.portal-history-layout--inset .admin-history-list {
+  display: block;
+  border-left: none;
+  padding-left: 0;
+  margin-left: 0;
+}
+
+.portal-history-inset-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: 100%;
+  padding: 14px 12px;
+  border-radius: 14px;
+  background: linear-gradient(180deg, #e4e4e7 0%, #d4d4d8 100%);
+  border: 1px solid #a1a1aa;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.5);
+}
+
+.portal-history-inset-card {
+  padding: 16px 18px 14px;
+  border-radius: 11px;
+  background: linear-gradient(180deg, #fafafa 0%, #ffffff 40%);
+  border: 1px solid #d4d4d8;
+  box-shadow:
+    inset 0 3px 8px rgba(0, 0, 0, 0.07),
+    inset 0 -1px 0 rgba(255, 255, 255, 0.85),
+    0 2px 4px rgba(0, 0, 0, 0.06);
+}
+
+.portal-history-inset-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 12px;
+  margin-bottom: 10px;
+}
+
+.portal-history-inset-time {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: #71717a;
+}
+
+.portal-history-inset-tipo {
+  font-size: 0.66rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.09em;
+  color: #52525b;
+}
+
+.portal-history-inset-motive {
+  margin: 0 0 8px;
+  font-size: 1.1rem;
+  font-weight: 800;
+  line-height: 1.28;
+  color: #18181b;
+}
+
+.portal-history-inset-summary {
+  margin: 0 0 14px;
+  font-size: 0.86rem;
+  line-height: 1.5;
+  color: #3f3f46;
+  word-break: break-word;
+}
+
+.portal-history-inset-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding-top: 2px;
+}
+
+.portal-history-inset-status .admin-history-item-approved,
+.portal-history-inset-status .admin-history-item-rejected,
+.portal-history-inset-status .admin-history-item-pendiente,
+.portal-history-inset-status .admin-history-item-na {
+  display: inline-block;
+}
+
+.portal-history-inset-pdf-btn {
+  font-size: 0.78rem;
+  font-weight: 700;
+  padding: 7px 14px;
+  border-radius: 7px;
+  color: #3f3f46;
+  background: linear-gradient(180deg, #f4f4f5 0%, #e4e4e7 100%);
+  border: 1px solid #a1a1aa;
+  box-shadow: 0 1px 0 #fafafa, inset 0 1px 0 rgba(255, 255, 255, 0.8);
+}
+
+.portal-history-inset-pdf-btn:hover {
+  background: linear-gradient(180deg, #e4e4e7 0%, #d4d4d8 100%);
+}
+
+@media (max-width: 420px) {
+  .portal-history-inset-stack {
+    padding: 10px 8px;
+  }
+
+  .portal-history-inset-card {
+    padding: 14px 14px 12px;
+  }
+}
+
+/* Portal — Diseño 17: mint / teal (--mint) */
+.role-local .portal-history-section.portal-history-layout--mint .admin-history-list {
+  display: block;
+  border-left: none;
+  padding-left: 0;
+  margin-left: 0;
+}
+
+.portal-history-mint {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: 100%;
+  padding: 4px 2px;
+}
+
+.portal-history-mint-card {
+  margin: 0;
+  padding: 16px 18px 14px;
+  background: #ffffff;
+  border: 1px solid #99f6e4;
+  border-left: 5px solid #14b8a6;
+  border-radius: 12px;
+  box-shadow: 0 2px 12px rgba(13, 148, 136, 0.12);
+}
+
+.portal-history-mint-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 12px;
+  margin-bottom: 10px;
+}
+
+.portal-history-mint-time {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: #0f766e;
+}
+
+.portal-history-mint-tipo {
+  font-size: 0.68rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #115e59;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: #ccfbf1;
+  border: 1px solid #5eead4;
+}
+
+.portal-history-mint-motive {
+  margin: 0 0 8px;
+  font-size: 1.1rem;
+  font-weight: 800;
+  line-height: 1.28;
+  color: #134e4a;
+}
+
+.portal-history-mint-summary {
+  margin: 0 0 14px;
+  font-size: 0.86rem;
+  line-height: 1.5;
+  color: #115e59;
+  word-break: break-word;
+}
+
+.portal-history-mint-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding-top: 4px;
+  border-top: 1px solid #ccfbf1;
+}
+
+.portal-history-mint-status .admin-history-item-approved,
+.portal-history-mint-status .admin-history-item-rejected,
+.portal-history-mint-status .admin-history-item-pendiente,
+.portal-history-mint-status .admin-history-item-na {
+  display: inline-block;
+}
+
+.portal-history-mint-pdf-btn {
+  font-size: 0.8rem;
+  font-weight: 700;
+  padding: 8px 16px;
+  border-radius: 8px;
+  color: #0f766e;
+  background: #f0fdfa;
+  border: 1px solid #2dd4bf;
+}
+
+.portal-history-mint-pdf-btn:hover {
+  background: #ccfbf1;
+  border-color: #14b8a6;
+}
+
+@media (max-width: 420px) {
+  .portal-history-mint-card {
+    padding: 14px 14px 12px;
+  }
+}
+
+/* Portal — Diseño 18: catálogo con miniatura (--catalog) */
+.role-local .portal-history-section.portal-history-layout--catalog .admin-history-list {
+  display: block;
+  border-left: none;
+  padding-left: 0;
+  margin-left: 0;
+}
+
+.portal-history-catalog {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: 100%;
+}
+
+.portal-history-catalog-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  padding: 14px 16px;
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 14px;
+  box-shadow: 0 2px 10px rgba(15, 23, 42, 0.06);
+}
+
+.portal-history-catalog-thumb {
+  flex: 0 0 56px;
+  width: 56px;
+  height: 56px;
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.35rem;
+  font-weight: 800;
+  color: #ffffff;
+  background: linear-gradient(145deg, #31305a 0%, #4c4d8f 100%);
+  box-shadow: 0 2px 8px rgba(49, 48, 90, 0.35);
+}
+
+.portal-history-catalog-body {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.portal-history-catalog-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px 12px;
+  margin-bottom: 6px;
+}
+
+.portal-history-catalog-time {
+  font-size: 0.74rem;
+  font-weight: 600;
+  color: #64748b;
+}
+
+.portal-history-catalog-tipo {
+  font-size: 0.65rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #31305a;
+}
+
+.portal-history-catalog-motive {
+  margin: 0 0 6px;
+  font-size: 1.05rem;
+  font-weight: 800;
+  line-height: 1.25;
+  color: #0f172a;
+}
+
+.portal-history-catalog-summary {
+  margin: 0 0 12px;
+  font-size: 0.84rem;
+  line-height: 1.45;
+  color: #475569;
+  word-break: break-word;
+}
+
+.portal-history-catalog-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.portal-history-catalog-status .admin-history-item-approved,
+.portal-history-catalog-status .admin-history-item-rejected,
+.portal-history-catalog-status .admin-history-item-pendiente,
+.portal-history-catalog-status .admin-history-item-na {
+  display: inline-block;
+}
+
+.portal-history-catalog-pdf-btn {
+  font-size: 0.78rem;
+  font-weight: 700;
+  padding: 7px 14px;
+  border-radius: 8px;
+  color: #166534;
+  background: #f0fdf4;
+  border: 1px solid #22c55e;
+}
+
+.portal-history-catalog-pdf-btn:hover {
+  background: #dcfce7;
+  border-color: #16a34a;
+}
+
+@media (max-width: 400px) {
+  .portal-history-catalog-item {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .portal-history-catalog-thumb {
+    flex: 0 0 auto;
+    width: 48px;
+    height: 48px;
+    font-size: 1.15rem;
+  }
+}
+
+/* Portal — Diseño 19: recibo térmico (--receipt) */
+.role-local .portal-history-section.portal-history-layout--receipt .admin-history-list {
+  display: block;
+  border-left: none;
+  padding-left: 0;
+  margin-left: 0;
+}
+
+.portal-history-receipt-stack {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+  width: 100%;
+  padding: 8px 0;
+}
+
+.portal-history-receipt-sheet {
+  width: 100%;
+  max-width: 360px;
+  margin: 0 auto;
+  padding: 16px 18px 14px;
+  background: #fafafa;
+  border: 1px dashed #737373;
+  border-radius: 2px;
+  font-family: ui-monospace, "Cascadia Mono", "Consolas", monospace;
+  font-size: 0.78rem;
+  line-height: 1.45;
+  color: #171717;
+  box-shadow: 0 2px 0 rgba(0, 0, 0, 0.06), 2px 4px 12px rgba(0, 0, 0, 0.08);
+}
+
+.portal-history-receipt-brand {
+  text-align: center;
+  font-weight: 800;
+  letter-spacing: 0.35em;
+  font-size: 0.72rem;
+  color: #404040;
+  margin-bottom: 8px;
+}
+
+.portal-history-receipt-rule {
+  height: 0;
+  margin: 8px 0;
+  border: none;
+  border-top: 1px dashed #a3a3a3;
+}
+
+.portal-history-receipt-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+  margin-bottom: 4px;
+}
+
+.portal-history-receipt-row--status {
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.portal-history-receipt-label {
+  flex: 0 0 auto;
+  font-weight: 700;
+  color: #525252;
+}
+
+.portal-history-receipt-val {
+  text-align: right;
+  font-weight: 600;
+  color: #171717;
+  word-break: break-word;
+}
+
+.portal-history-receipt-motive {
+  margin: 8px 0 6px;
+  font-weight: 800;
+  font-size: 0.88rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #0a0a0a;
+}
+
+.portal-history-receipt-summary {
+  margin: 0 0 8px;
+  font-weight: 500;
+  color: #404040;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.portal-history-receipt-statuswrap .admin-history-item-approved,
+.portal-history-receipt-statuswrap .admin-history-item-rejected,
+.portal-history-receipt-statuswrap .admin-history-item-pendiente,
+.portal-history-receipt-statuswrap .admin-history-item-na {
+  display: inline-block;
+  font-size: 0.72rem;
+}
+
+.portal-history-receipt-actions {
+  margin-top: 10px;
+  text-align: center;
+}
+
+.portal-history-receipt-pdf-btn {
+  font-family: inherit;
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  padding: 8px 14px;
+  border-radius: 2px;
+  border: 2px solid #171717;
+  background: #ffffff;
+  color: #171717;
+}
+
+.portal-history-receipt-pdf-btn:hover {
+  background: #f5f5f5;
+}
+
+@media (max-width: 380px) {
+  .portal-history-receipt-sheet {
+    max-width: 100%;
+    padding: 14px 12px 12px;
+  }
+}
+
+/* Portal — Diseño 20: Polaroid (--polaroid) */
+.role-local .portal-history-section.portal-history-layout--polaroid .admin-history-list {
+  display: block;
+  border-left: none;
+  padding-left: 0;
+  margin-left: 0;
+}
+
+.portal-history-polaroid-stack {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 18px;
+  width: 100%;
+  padding: 8px 4px;
+}
+
+.portal-history-polaroid-card {
+  flex: 0 1 280px;
+  max-width: 300px;
+}
+
+.portal-history-polaroid-frame {
+  background: #ffffff;
+  padding: 12px 12px 20px;
+  border-radius: 3px;
+  box-shadow:
+    0 4px 6px rgba(0, 0, 0, 0.12),
+    0 12px 28px rgba(0, 0, 0, 0.18);
+  transform: rotate(-0.8deg);
+}
+
+.portal-history-polaroid-card:nth-child(even) .portal-history-polaroid-frame {
+  transform: rotate(0.8deg);
+}
+
+.portal-history-polaroid-photo {
+  min-height: 120px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 14px 12px;
+  border-radius: 2px;
+  background: linear-gradient(160deg, #475569 0%, #1e293b 100%);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08);
+}
+
+.portal-history-polaroid-motive {
+  font-size: 0.95rem;
+  font-weight: 800;
+  line-height: 1.3;
+  text-align: center;
+  color: #f8fafc;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.45);
+  word-break: break-word;
+}
+
+.portal-history-polaroid-caption {
+  margin-top: 12px;
+  padding: 0 2px;
+}
+
+.portal-history-polaroid-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 6px 10px;
+  margin-bottom: 6px;
+}
+
+.portal-history-polaroid-time {
+  font-size: 0.68rem;
+  font-weight: 700;
+  color: #64748b;
+}
+
+.portal-history-polaroid-tipo {
+  font-size: 0.6rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #94a3b8;
+}
+
+.portal-history-polaroid-summary {
+  margin: 0 0 10px;
+  font-size: 0.78rem;
+  line-height: 1.4;
+  color: #334155;
+  word-break: break-word;
+}
+
+.portal-history-polaroid-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.portal-history-polaroid-status .admin-history-item-approved,
+.portal-history-polaroid-status .admin-history-item-rejected,
+.portal-history-polaroid-status .admin-history-item-pendiente,
+.portal-history-polaroid-status .admin-history-item-na {
+  display: inline-block;
+  font-size: 0.72rem;
+}
+
+.portal-history-polaroid-pdf-btn {
+  font-size: 0.72rem;
+  padding: 5px 10px;
+  border-radius: 6px;
+}
+
+@media (max-width: 520px) {
+  .portal-history-polaroid-stack {
+    flex-direction: column;
+    align-items: center;
+  }
+
+  .portal-history-polaroid-card {
+    flex: 1 1 auto;
+    max-width: 100%;
+    width: 100%;
+  }
+
+  .portal-history-polaroid-frame {
+    transform: none;
+  }
+
+  .portal-history-polaroid-card:nth-child(even) .portal-history-polaroid-frame {
+    transform: none;
+  }
+}
+
+/* Portal — Diseño 21: periódico / columna (--journal) */
+.role-local .portal-history-section.portal-history-layout--journal .admin-history-list {
+  display: block;
+  border-left: none;
+  padding-left: 0;
+  margin-left: 0;
+}
+
+.portal-history-journal {
+  max-width: 42rem;
+  margin: 0 auto;
+  padding: 8px 4px 4px;
+  border: 3px double #1c1917;
+  background: #fafaf9;
+  box-shadow: 0 2px 0 rgba(0, 0, 0, 0.06);
+}
+
+.portal-history-journal-item {
+  padding: 16px 18px 18px;
+  border-bottom: 1px solid #d6d3d1;
+}
+
+.portal-history-journal-item:last-child {
+  border-bottom: none;
+}
+
+.portal-history-journal-rule {
+  height: 3px;
+  margin: 0 0 12px;
+  background: #1c1917;
+  max-width: 4rem;
+}
+
+.portal-history-journal-headline {
+  margin: 0 0 8px;
+  font-family: Georgia, "Times New Roman", Times, serif;
+  font-size: 1.35rem;
+  font-weight: 700;
+  line-height: 1.2;
+  letter-spacing: -0.02em;
+  color: #0c0a09;
+}
+
+.portal-history-journal-byline {
+  margin: 0 0 10px;
+  font-size: 0.75rem;
+  font-style: italic;
+  color: #57534e;
+}
+
+.portal-history-journal-byline time {
+  font-style: italic;
+  font-weight: 600;
+}
+
+.portal-history-journal-sep {
+  margin: 0 0.35em;
+  color: #a8a29e;
+}
+
+.portal-history-journal-body {
+  margin: 0 0 14px;
+  font-family: Georgia, "Times New Roman", Times, serif;
+  font-size: 0.92rem;
+  line-height: 1.55;
+  color: #292524;
+  text-align: justify;
+  hyphens: auto;
+  word-break: break-word;
+}
+
+.portal-history-journal-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding-top: 4px;
+}
+
+.portal-history-journal-status .admin-history-item-approved,
+.portal-history-journal-status .admin-history-item-rejected,
+.portal-history-journal-status .admin-history-item-pendiente,
+.portal-history-journal-status .admin-history-item-na {
+  display: inline-block;
+}
+
+.portal-history-journal-pdf-btn {
+  font-family: ui-sans-serif, system-ui, sans-serif;
+  font-size: 0.78rem;
+  font-weight: 700;
+  padding: 6px 12px;
+  border-radius: 4px;
+  border: 1px solid #1c1917;
+  background: #ffffff;
+  color: #1c1917;
+}
+
+.portal-history-journal-pdf-btn:hover {
+  background: #f5f5f4;
+}
+
+@media (max-width: 480px) {
+  .portal-history-journal {
+    border-width: 2px;
+  }
+
+  .portal-history-journal-item {
+    padding: 14px 12px 16px;
+  }
+
+  .portal-history-journal-headline {
+    font-size: 1.2rem;
+  }
+}
+
+/* Portal — Diseño 22: lista agrupada iOS (--ios) */
+.role-local .portal-history-section.portal-history-layout--ios .admin-history-list {
+  display: block;
+  border-left: none;
+  padding-left: 0;
+  margin-left: 0;
+}
+
+.portal-history-ios {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: 100%;
+  padding: 12px 10px;
+  border-radius: 12px;
+  background: #e5e5ea;
+  box-sizing: border-box;
+}
+
+.portal-history-ios-group {
+  margin: 0;
+  background: #ffffff;
+  border-radius: 10px;
+  overflow: hidden;
+  box-shadow: 0 1px 0 rgba(0, 0, 0, 0.04);
+}
+
+.portal-history-ios-row {
+  padding: 11px 14px;
+  font-size: 0.88rem;
+  line-height: 1.35;
+  border-bottom: 0.5px solid #c6c6c8;
+}
+
+.portal-history-ios-group .portal-history-ios-row:last-child {
+  border-bottom: none;
+}
+
+.portal-history-ios-row--title {
+  font-size: 1.02rem;
+  font-weight: 700;
+  color: #000000;
+  padding-top: 12px;
+  padding-bottom: 10px;
+}
+
+.portal-history-ios-row--muted {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  color: #000000;
+}
+
+.portal-history-ios-label {
+  flex: 0 0 auto;
+  font-size: 0.82rem;
+  color: #8e8e93;
+}
+
+.portal-history-ios-value {
+  flex: 1 1 auto;
+  text-align: right;
+  font-size: 0.82rem;
+  font-weight: 500;
+  color: #3a3a3c;
+  word-break: break-word;
+}
+
+.portal-history-ios-row--body {
+  font-size: 0.84rem;
+  color: #3a3a3c;
+  word-break: break-word;
+}
+
+.portal-history-ios-row--foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding-bottom: 12px;
+  background: #fafafa;
+}
+
+.portal-history-ios-status .admin-history-item-approved,
+.portal-history-ios-status .admin-history-item-rejected,
+.portal-history-ios-status .admin-history-item-pendiente,
+.portal-history-ios-status .admin-history-item-na {
+  display: inline-block;
+  font-size: 0.75rem;
+}
+
+.portal-history-ios-pdf-btn {
+  font-size: 0.8rem;
+  font-weight: 600;
+  padding: 7px 14px;
+  border-radius: 10px;
+  color: #007aff;
+  background: transparent;
+  border: none;
+}
+
+.portal-history-ios-pdf-btn:hover {
+  background: rgba(0, 122, 255, 0.08);
+}
+
+@media (max-width: 420px) {
+  .portal-history-ios {
+    padding: 10px 8px;
+  }
+
+  .portal-history-ios-row {
+    padding: 10px 12px;
+  }
+}
+
+/* Portal — Diseño 23: oscuro / noche (--night) */
+.role-local .portal-history-section.portal-history-layout--night .admin-history-list {
+  display: block;
+  border-left: none;
+  padding-left: 0;
+  margin-left: 0;
+}
+
+.portal-history-night {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: 100%;
+  padding: 14px 12px;
+  border-radius: 14px;
+  background: linear-gradient(165deg, #0f172a 0%, #1e293b 50%, #0f172a 100%);
+  border: 1px solid #334155;
+  box-shadow: inset 0 1px 0 rgba(148, 163, 184, 0.12);
+  box-sizing: border-box;
+}
+
+.portal-history-night-card {
+  padding: 16px 16px 14px;
+  border-radius: 12px;
+  background: rgba(30, 41, 59, 0.85);
+  border: 1px solid #475569;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
+}
+
+.portal-history-night-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 12px;
+  margin-bottom: 10px;
+}
+
+.portal-history-night-time {
+  font-size: 0.76rem;
+  font-weight: 600;
+  color: #94a3b8;
+}
+
+.portal-history-night-tipo {
+  font-size: 0.65rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.09em;
+  color: #cbd5e1;
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: rgba(51, 65, 85, 0.9);
+  border: 1px solid #64748b;
+}
+
+.portal-history-night-motive {
+  margin: 0 0 8px;
+  font-size: 1.1rem;
+  font-weight: 800;
+  line-height: 1.28;
+  color: #f8fafc;
+}
+
+.portal-history-night-summary {
+  margin: 0 0 14px;
+  font-size: 0.86rem;
+  line-height: 1.5;
+  color: #cbd5e1;
+  word-break: break-word;
+}
+
+.portal-history-night-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding-top: 8px;
+  border-top: 1px solid #475569;
+}
+
+.portal-history-night-status .admin-history-item-approved,
+.portal-history-night-status .admin-history-item-rejected,
+.portal-history-night-status .admin-history-item-pendiente,
+.portal-history-night-status .admin-history-item-na {
+  display: inline-block;
+}
+
+.portal-history-night-pdf-btn {
+  font-size: 0.78rem;
+  font-weight: 700;
+  padding: 7px 14px;
+  border-radius: 8px;
+  color: #e2e8f0;
+  background: #334155;
+  border: 1px solid #64748b;
+}
+
+.portal-history-night-pdf-btn:hover {
+  background: #475569;
+  border-color: #94a3b8;
+}
+
+@media (max-width: 420px) {
+  .portal-history-night {
+    padding: 12px 10px;
+  }
+
+  .portal-history-night-card {
+    padding: 14px 12px 12px;
+  }
+}
+
+/* Portal — Diseño 24: neo-brutalismo (--neo) */
+.role-local .portal-history-section.portal-history-layout--neo .admin-history-list {
+  display: block;
+  border-left: none;
+  padding-left: 0;
+  margin-left: 0;
+}
+
+.portal-history-neo {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  width: 100%;
+  padding: 14px 12px;
+  background: #fde047;
+  border: 3px solid #0a0a0a;
+  border-radius: 4px;
+  box-shadow: 6px 6px 0 #0a0a0a;
+  box-sizing: border-box;
+}
+
+.portal-history-neo-card {
+  margin: 0;
+  padding: 14px 14px 12px;
+  background: #ffffff;
+  border: 3px solid #0a0a0a;
+  border-radius: 2px;
+  box-shadow: 5px 5px 0 #0a0a0a;
+}
+
+.portal-history-neo-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 12px;
+  margin-bottom: 10px;
+}
+
+.portal-history-neo-time {
+  font-size: 0.75rem;
+  font-weight: 900;
+  color: #0a0a0a;
+}
+
+.portal-history-neo-tipo {
+  font-size: 0.65rem;
+  font-weight: 900;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: #0a0a0a;
+  padding: 4px 8px;
+  border: 2px solid #0a0a0a;
+  background: #fef9c3;
+}
+
+.portal-history-neo-motive {
+  margin: 0 0 8px;
+  font-size: 1.15rem;
+  font-weight: 900;
+  line-height: 1.2;
+  letter-spacing: -0.03em;
+  color: #0a0a0a;
+}
+
+.portal-history-neo-summary {
+  margin: 0 0 12px;
+  font-size: 0.86rem;
+  font-weight: 600;
+  line-height: 1.45;
+  color: #171717;
+  word-break: break-word;
+}
+
+.portal-history-neo-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding-top: 8px;
+  border-top: 3px solid #0a0a0a;
+}
+
+.portal-history-neo-status .admin-history-item-approved,
+.portal-history-neo-status .admin-history-item-rejected,
+.portal-history-neo-status .admin-history-item-pendiente,
+.portal-history-neo-status .admin-history-item-na {
+  display: inline-block;
+}
+
+.portal-history-neo-pdf-btn {
+  font-size: 0.78rem;
+  font-weight: 900;
+  letter-spacing: 0.06em;
+  padding: 8px 14px;
+  border-radius: 2px;
+  color: #ffffff;
+  background: #0a0a0a;
+  border: 3px solid #0a0a0a;
+}
+
+.portal-history-neo-pdf-btn:hover {
+  background: #262626;
+  border-color: #262626;
+}
+
+@media (max-width: 420px) {
+  .portal-history-neo {
+    padding: 12px 10px;
+    box-shadow: 4px 4px 0 #0a0a0a;
+  }
+
+  .portal-history-neo-card {
+    padding: 12px 12px 10px;
+  }
+}
+
+/* Portal — Diseño 25: pastel (--pastel) */
+.role-local .portal-history-section.portal-history-layout--pastel .admin-history-list {
+  display: block;
+  border-left: none;
+  padding-left: 0;
+  margin-left: 0;
+}
+
+.portal-history-pastel {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  width: 100%;
+  padding: 6px 4px;
+}
+
+.portal-history-pastel-card {
+  padding: 16px 18px 14px;
+  background: linear-gradient(180deg, #ffffff 0%, #faf5ff 100%);
+  border: 1px solid #e9d5ff;
+  border-radius: 16px;
+  box-shadow: 0 4px 20px rgba(168, 85, 247, 0.08), 0 1px 3px rgba(15, 23, 42, 0.04);
+}
+
+.portal-history-pastel-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 12px;
+  margin-bottom: 10px;
+}
+
+.portal-history-pastel-time {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: #a855f7;
+}
+
+.portal-history-pastel-tipo {
+  font-size: 0.66rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #7e22ce;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: #f3e8ff;
+  border: 1px solid #e9d5ff;
+}
+
+.portal-history-pastel-motive {
+  margin: 0 0 8px;
+  font-size: 1.1rem;
+  font-weight: 800;
+  line-height: 1.28;
+  color: #581c87;
+}
+
+.portal-history-pastel-summary {
+  margin: 0 0 14px;
+  font-size: 0.86rem;
+  line-height: 1.5;
+  color: #6b21a8;
+  word-break: break-word;
+}
+
+.portal-history-pastel-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding-top: 6px;
+  border-top: 1px solid #f3e8ff;
+}
+
+.portal-history-pastel-status .admin-history-item-approved,
+.portal-history-pastel-status .admin-history-item-rejected,
+.portal-history-pastel-status .admin-history-item-pendiente,
+.portal-history-pastel-status .admin-history-item-na {
+  display: inline-block;
+}
+
+.portal-history-pastel-pdf-btn {
+  font-size: 0.78rem;
+  font-weight: 700;
+  padding: 7px 14px;
+  border-radius: 999px;
+  color: #7e22ce;
+  background: #faf5ff;
+  border: 1px solid #c084fc;
+}
+
+.portal-history-pastel-pdf-btn:hover {
+  background: #f3e8ff;
+  border-color: #a855f7;
+}
+
+@media (max-width: 420px) {
+  .portal-history-pastel-card {
+    padding: 14px 14px 12px;
+  }
+}
+
+/* Portal — Diseño 26: abanico / solapado (--fan) */
+.role-local .portal-history-section.portal-history-layout--fan .admin-history-list {
+  display: block;
+  border-left: none;
+  padding-left: 0;
+  margin-left: 0;
+}
+
+.portal-history-fan-stack {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  padding: 8px 8px 28px;
+  isolation: isolate;
+}
+
+.portal-history-fan-card {
+  position: relative;
+  margin-bottom: -32px;
+  padding: 14px 16px 16px;
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  box-shadow: 0 4px 14px rgba(15, 23, 42, 0.1);
+  transform: rotate(-0.4deg);
+}
+
+.portal-history-fan-card:nth-child(even) {
+  transform: rotate(0.45deg);
+}
+
+.portal-history-fan-card:last-child {
+  margin-bottom: 0;
+}
+
+.portal-history-fan-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 12px;
+  margin-bottom: 8px;
+}
+
+.portal-history-fan-time {
+  font-size: 0.76rem;
+  font-weight: 600;
+  color: #64748b;
+}
+
+.portal-history-fan-tipo {
+  font-size: 0.65rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #475569;
+}
+
+.portal-history-fan-motive {
+  margin: 0 0 6px;
+  font-size: 1.05rem;
+  font-weight: 800;
+  line-height: 1.25;
+  color: #0f172a;
+}
+
+.portal-history-fan-summary {
+  margin: 0 0 12px;
+  font-size: 0.84rem;
+  line-height: 1.45;
+  color: #334155;
+  word-break: break-word;
+}
+
+.portal-history-fan-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.portal-history-fan-status .admin-history-item-approved,
+.portal-history-fan-status .admin-history-item-rejected,
+.portal-history-fan-status .admin-history-item-pendiente,
+.portal-history-fan-status .admin-history-item-na {
+  display: inline-block;
+}
+
+.portal-history-fan-pdf-btn {
+  font-size: 0.76rem;
+  font-weight: 700;
+  padding: 6px 12px;
+  border-radius: 8px;
+}
+
+@media (max-width: 480px) {
+  .portal-history-fan-card {
+    margin-bottom: -24px;
+    transform: none;
+  }
+
+  .portal-history-fan-card:nth-child(even) {
+    transform: none;
+  }
+}
+
+/* Portal — Diseño 27: ticket / entrada (--ticket) */
+.role-local .portal-history-section.portal-history-layout--ticket .admin-history-list {
+  display: block;
+  border-left: none;
+  padding-left: 0;
+  margin-left: 0;
+}
+
+.portal-history-ticket-list {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  width: 100%;
+}
+
+.portal-history-ticket {
+  display: flex;
+  flex-direction: row;
+  align-items: stretch;
+  width: 100%;
+  min-width: 0;
+  background: #fffdf8;
+  border: 1px solid #d4c4a8;
+  border-radius: 10px;
+  overflow: hidden;
+  box-shadow: 0 6px 18px rgba(59, 47, 23, 0.08);
+}
+
+.portal-history-ticket-stub {
+  flex: 0 0 108px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 12px 10px;
+  background: linear-gradient(165deg, #2c2416 0%, #1a1510 100%);
+  color: #f5e6c8;
+  text-align: center;
+}
+
+.portal-history-ticket-stub-label {
+  font-size: 0.58rem;
+  font-weight: 800;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  opacity: 0.75;
+}
+
+.portal-history-ticket-stub-num {
+  font-size: 1.35rem;
+  font-weight: 900;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+
+.portal-history-ticket-stub-time {
+  font-size: 0.62rem;
+  font-weight: 600;
+  line-height: 1.25;
+  opacity: 0.92;
+  word-break: break-word;
+}
+
+.portal-history-ticket-stub-tipo {
+  font-size: 0.58rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #e8d4a8;
+}
+
+.portal-history-ticket-perf {
+  flex: 0 0 14px;
+  background: repeating-linear-gradient(
+    to bottom,
+    #fffdf8 0px,
+    #fffdf8 5px,
+    #c9b896 5px,
+    #c9b896 7px
+  );
+  border-left: 1px dashed rgba(90, 74, 46, 0.35);
+  border-right: 1px dashed rgba(90, 74, 46, 0.35);
+}
+
+.portal-history-ticket-body {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 14px 16px 12px;
+  display: flex;
+  flex-direction: column;
+}
+
+.portal-history-ticket-motive {
+  margin: 0 0 6px;
+  font-size: 1.02rem;
+  font-weight: 800;
+  line-height: 1.25;
+  color: #1c1912;
+}
+
+.portal-history-ticket-summary {
+  margin: 0 0 12px;
+  font-size: 0.84rem;
+  line-height: 1.45;
+  color: #3d3428;
+  word-break: break-word;
+  flex: 1 1 auto;
+}
+
+.portal-history-ticket-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: auto;
+  padding-top: 4px;
+}
+
+.portal-history-ticket-status .admin-history-item-approved,
+.portal-history-ticket-status .admin-history-item-rejected,
+.portal-history-ticket-status .admin-history-item-pendiente,
+.portal-history-ticket-status .admin-history-item-na {
+  display: inline-block;
+}
+
+.portal-history-ticket-pdf-btn {
+  font-size: 0.76rem;
+  font-weight: 700;
+  padding: 6px 12px;
+  border-radius: 8px;
+}
+
+@media (max-width: 520px) {
+  .portal-history-ticket {
+    flex-direction: column;
+  }
+
+  .portal-history-ticket-stub {
+    flex: 0 0 auto;
+    flex-direction: row;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 8px 14px;
+    padding: 10px 12px;
+  }
+
+  .portal-history-ticket-stub-num {
+    font-size: 1.1rem;
+  }
+
+  .portal-history-ticket-perf {
+    flex: 0 0 12px;
+    width: 100%;
+    min-height: 12px;
+    background: repeating-linear-gradient(
+      to right,
+      #fffdf8 0px,
+      #fffdf8 5px,
+      #c9b896 5px,
+      #c9b896 7px
+    );
+    border-left: none;
+    border-right: none;
+    border-top: 1px dashed rgba(90, 74, 46, 0.35);
+    border-bottom: 1px dashed rgba(90, 74, 46, 0.35);
+  }
+}
+
+.portal-history-table-scroll {
+  width: 100%;
+  max-width: 100%;
+  overflow-x: auto;
+  border-radius: 12px;
+  border: 1px solid #e2e8f0;
+  background: #ffffff;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.06);
+}
+
+.portal-history-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.82rem;
+  color: #0f172a;
+  min-width: 640px;
+}
+
+.portal-history-table thead {
+  background: linear-gradient(180deg, #f8fafc 0%, #f1f5f9 100%);
+}
+
+.portal-history-table th {
+  text-align: left;
+  padding: 10px 12px;
+  font-weight: 700;
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #334155;
+  border-bottom: 2px solid #cbd5e1;
+  white-space: nowrap;
+}
+
+.portal-history-table td {
+  padding: 10px 12px;
+  vertical-align: middle;
+  border-bottom: 1px solid #e2e8f0;
+}
+
+.portal-history-table tbody tr:hover {
+  background: #f8fafc;
+}
+
+.portal-history-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.portal-history-td-date {
+  white-space: nowrap;
+  color: #475569;
+  font-weight: 600;
+}
+
+.portal-history-td-summary {
+  max-width: 280px;
+  word-break: break-word;
+  color: #1e293b;
+  line-height: 1.35;
+}
+
+.portal-history-td-estado .admin-history-item-approved,
+.portal-history-td-estado .admin-history-item-rejected,
+.portal-history-td-estado .admin-history-item-pendiente,
+.portal-history-td-estado .admin-history-item-na {
+  display: inline-block;
+}
+
+.portal-history-table-pdf-btn {
+  font-size: 0.78rem;
+  padding: 6px 10px;
+}
+
+.role-local .portal-request-cards-host {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: 100%;
+  max-width: var(--portal-solicitud-recuadro-max-width);
+  align-self: flex-start;
+}
+
+.role-local.portal-final-decision-mode .portal-request-cards-host {
+  margin-top: var(--portal-solicitud-en-curso-offset-y);
+  margin-left: var(--portal-solicitud-recuadro-offset-x);
+  /*
+   * El padre (.vacaciones-columna, etc.) era ~490px por el ancho de los formularios;
+   * max-width + width:100% no superaban ese techo. Aquí fijamos ancho respecto al viewport.
+   */
+  width: min(
+    var(--portal-solicitud-recuadro-max-width),
+    calc(100vw - var(--portal-solicitud-recuadro-viewport-margin))
+  );
+  max-width: none;
+  flex-shrink: 0;
+  position: relative;
+  z-index: 2; /* por encima del bloque absoluto "Estatus del permiso" si se solapan */
+}
+
+/* Mismo recuadro cuando el motivo guardado es Permiso con goce: offsets propios (comandos en :root) */
+.role-local.portal-final-decision-mode .permiso-goce-columna .portal-request-cards-host {
+  margin-top: var(
+    --portal-solicitud-en-curso-offset-y-permiso-goce,
+    var(--portal-solicitud-en-curso-offset-y)
+  );
+  margin-left: var(
+    --portal-solicitud-recuadro-offset-x-permiso-goce,
+    var(--portal-solicitud-recuadro-offset-x)
+  );
+}
+
+.role-local.portal-final-decision-mode .falta-justificada-columna .portal-request-cards-host {
+  margin-top: var(
+    --portal-solicitud-en-curso-offset-y-falta-justificada,
+    var(--portal-solicitud-en-curso-offset-y)
+  );
+  margin-left: var(
+    --portal-solicitud-recuadro-offset-x-falta-justificada,
+    var(--portal-solicitud-recuadro-offset-x)
+  );
+}
+
+.role-local.portal-final-decision-mode .permiso-sin-goce-columna .portal-request-cards-host {
+  margin-top: var(
+    --portal-solicitud-en-curso-offset-y-permiso-sin-goce,
+    var(--portal-solicitud-en-curso-offset-y)
+  );
+  margin-left: var(
+    --portal-solicitud-recuadro-offset-x-permiso-sin-goce,
+    var(--portal-solicitud-recuadro-offset-x)
+  );
+}
+
+/* Recuadro colocado en #portalSolicitudEnCursoSlot (PORTAL_SOLICITUD_EN_CURSO_REGION = "tras_estatus") */
+.role-local.portal-final-decision-mode .portal-solicitud-en-curso-slot .portal-request-cards-host {
+  margin-top: var(
+    --portal-solicitud-en-curso-offset-y-tras-estatus,
+    var(--portal-solicitud-en-curso-offset-y)
+  );
+  margin-left: var(
+    --portal-solicitud-recuadro-offset-x-tras-estatus,
+    var(--portal-solicitud-recuadro-offset-x)
+  );
+}
+
+.portal-solicitud-en-curso-slot {
+  display: none;
+}
+
+.role-local.portal-final-decision-mode .portal-solicitud-en-curso-slot:not(:empty) {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  align-self: flex-start;
+  min-width: 0;
+}
+
+/* Tarjeta de la solicitud vigente (misma marca que historial), solo en modo post-decisión admin */
+.role-local .portal-inline-latest-solicitud {
+  width: 100%;
+}
+
+.role-local .portal-inline-latest-solicitud .admin-history-item {
+  margin-top: 0;
+}
+
+.role-local .portal-vacation-saldo-line {
+  margin: 0 0 10px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 1px solid #e5e7eb;
+  background: #f8fafc;
+  color: #000000;
+  font-size: 0.92rem;
+  line-height: 1.45;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.role-local .layout-middle-row .vacaciones-columna {
+  margin-top: -58px;
+  margin-left: calc(var(--layout-padding-left, 32px) + 50px); /* alinear "Fechas a disfrutar" con "Motivo de ausencia" */
+}
+
+/*
+ * No usar overflow distinto de visible aquí: con margin-top negativo en .portal-request-cards-host
+ * el contenido sube y quedaría recortado (solo se vería el pie con Operador / Generar PDF).
+ * El ancho del recuadro ya usa min(..., 100vw - margen).
+ */
+.role-local.portal-final-decision-mode .layout-middle-row {
+  overflow: visible;
+}
+
+/* Tras aprobación o rechazo por cualquier admin (Supervisor/Gerente/RH): ocultar recuadros; botones post-decisión en columna */
+.role-local.portal-final-decision-mode #motivoSection {
+  display: none !important;
+}
+.role-local.portal-final-decision-mode .vacaciones-columna > .card,
+.role-local.portal-final-decision-mode .vacaciones-columna > .guardar-vacaciones-wrap,
+.role-local.portal-final-decision-mode .falta-justificada-columna > .card,
+.role-local.portal-final-decision-mode .falta-justificada-columna > .guardar-vacaciones-wrap,
+.role-local.portal-final-decision-mode .permiso-sin-goce-columna > .card,
+.role-local.portal-final-decision-mode .permiso-sin-goce-columna > .guardar-vacaciones-wrap,
+.role-local.portal-final-decision-mode .permiso-goce-columna > .card,
+.role-local.portal-final-decision-mode .permiso-goce-columna > .guardar-vacaciones-wrap {
+  display: none !important;
+}
+
+/* portal.html: aviso cuando el estatus final es aprobado o rechazado (tres admins) */
+.portal-final-decision-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.35);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 10050;
+}
+
+.portal-final-decision-modal-box {
+  background: #ffffff;
+  border: 1px solid #e5e7eb;
+  border-radius: 14px;
+  padding: 22px 24px 20px;
+  width: min(400px, 90vw);
+  box-shadow: 0 8px 30px rgba(15, 23, 42, 0.12);
+}
+
+.portal-final-decision-modal-text {
+  margin: 0 0 18px;
+  color: #000000;
+  font-size: 1rem;
+  line-height: 1.45;
+  text-align: center;
+}
+
+.portal-final-decision-modal-actions {
+  display: flex;
+  justify-content: center;
+  gap: 12px;
+}
+
+.portal-final-decision-modal-btn {
+  border: none;
+  border-radius: 999px;
+  padding: 10px 22px;
+  font-size: 0.9rem;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.portal-final-decision-modal-btn--primary {
+  background: #31305a;
+  color: #ffffff;
+}
+
+.portal-final-decision-modal-btn--secondary {
+  background: #31305a;
+  color: #ffffff;
+}
+
+/* Debajo del recuadro de solicitud aprobada (tras Aceptar en el modal): solo esta fila más estrecha que el recuadro */
+.portal-post-approve-actions {
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: stretch;
+  justify-content: center;
+  align-self: center;
+  gap: 8px;
+  width: 100%;
+  max-width: 420px;
+  min-height: 48px; /* Mantener altura estable del bloque post-decisión */
+  margin-top: 4px;
+  box-sizing: border-box;
+}
+
+.portal-post-approve-btn {
+  flex: 1 1 0;
+  min-width: 0;
+  border: none;
+  border-radius: 999px;
+  padding: 9px 8px;
+  font-size: 0.78rem;
+  font-weight: 500;
+  line-height: 1.2;
+  text-align: center;
+  cursor: pointer;
+  color: #ffffff;
+  box-sizing: border-box;
+  white-space: normal;
+}
+
+.portal-post-approve-btn--pdf {
+  background: #e7ebeb;
+  color: #000000;
+}
+
+.portal-post-approve-btn--new {
+  background: #e7ebeb;
+  color: #000000;
+}
+
+/* Tras rechazo y pulsar "Volver": un solo botón bajo el recuadro */
+.portal-post-reject-actions {
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: stretch;
+  justify-content: center;
+  align-self: center;
+  gap: 8px;
+  width: 100%;
+  max-width: 420px;
+  min-height: 48px; /* Igualar altura con aprobado para que el historial no “salte” */
+  margin-top: 4px;
+  box-sizing: border-box;
+}
+
+.portal-post-reject-actions .portal-post-approve-btn {
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 100%;
+  padding: 9px 16px;
+}
+
+/* Selector de motivo para usuario local (recuadro Motivo de ausencia) */
+.motivo-local-select {
+  padding-top: 0;
+  margin-bottom: -12px; /* recorta aún más el espacio azul bajo el recuadro blanco */
+}
+.motivo-local-select select {
+  min-width: 160px;
+  margin-left: -7px;
+}
+/* Texto "Seleccionar motivo" en estilo placeholder (transparente) */
+#motivoSelectLocal {
+  padding-top: 4px;
+  padding-bottom: 2px; /* reduce ligeramente la altura del recuadro blanco */
+  margin-bottom: -4px; /* reduce el espacio azul justo debajo del recuadro blanco */
+}
+#motivoSelectLocal.motivo-placeholder {
+  color: rgba(0, 0, 0, 0.35);
+}
+#motivoSelectLocal.motivo-placeholder option:not([value=""]) {
+  color: #000000;
+}
+
+/* Card Datos de vacaciones / permiso: ancho según contenido; se alarga si hace falta */
+#vacacionesCard,
+#fechasDisfrutarCard,
+#permisoGoceCard {
+  flex: 0 1 auto;
+  width: 207px;
+  max-width: 100%;
+  margin: 0;
+  margin-left: -83px; /* mueve el recuadro Permiso con goce 70px hacia la izquierda */
+  margin-top: -170px; /* sube ligeramente el recuadro Permiso con goce para alinearlo con Motivo de ausencia */
+  padding: 11px 14px; /* Reduce la altura (padding interno) de estas cards */
+}
+
+/* Aumentar la altura solo del recuadro "Permiso de goce" sin mover su contenido */
+#permisoGoceCard {
+  padding-bottom: 18px;
+  /* No estirar este recuadro al ancho de #fechasPermisoCard (columna flex) */
+  align-self: flex-start;
+  max-width: 207px;
+  box-sizing: border-box;
+}
+
+#vacacionesCard {
+  margin-left: -65px;
+  margin-top: -112px; /* alinear margen superior con recuadro "Motivo de ausencia" */
+  padding-bottom: 1px;
+  padding-top: 10px;
+  /* No estirar este recuadro al ancho de #fechasDisfrutarCard (columna flex) */
+  align-self: flex-start;
+  max-width: 207px;
+  box-sizing: border-box;
+}
+#vacacionesCard .vacaciones-card-fields {
+  padding-top: 0;
+  gap: 2px;
+}
+#vacacionesCard .vacaciones-field {
+  gap: 10px;
+}
+
+/* Ajustes específicos para "Fechas a disfrutar" */
+#fechasDisfrutarCard {
+  align-self: flex-start; /* Evita que se estire a lo alto */
+  min-width: var(--portal-fechas-disfrutar-min-width);
+  padding: 12px 16px;     /* Aumenta ligeramente la altura (padding interno) */
+  margin-top: 24px;       /* Distancia vertical desde arriba */
+  margin-left: -300px;    /* Posición horizontal de Fechas a disfrutar */
+}
+
+/* Ajustes específicos para "Fechas del permiso" */
+#fechasPermisoCard {
+  align-self: flex-start;
+  min-width: var(--portal-fechas-permiso-con-goce-min-width);
+  padding: 12px 16px;
+  margin-top: 24px;
+  margin-left: -318px;    /* Posición horizontal independiente de Fechas del permiso */
+}
+
+/* Permiso con goce: misma fila — Fechas del permiso + No. días (alineados a la izquierda) */
+#fechasPermisoCard .fechas-permiso-goce-row {
+  flex-direction: row;
+  align-items: flex-start;
+  flex-wrap: nowrap;
+  gap: 0;
+}
+#fechasPermisoCard .fechas-permiso-goce-dias-col {
+  flex: 0 0 auto;
+  margin-left: var(--portal-no-dias-offset-x-permiso-con-goce);
+  margin-top: var(--portal-no-dias-offset-y-permiso-con-goce);
+}
+#fechasPermisoCard .fechas-permiso-goce-fechas-col {
+  flex: 0 0 auto;
+  min-width: 0;
+  margin-top: -5px;
+}
+#fechasPermisoCard .fechas-permiso-goce-dias-col .vacaciones-label {
+  font-weight: normal;
+}
+
+/* Misma fila: "No. días" a la izquierda, recuadro blanco a la derecha (sin mensajes bajo el campo). */
+#fechasPermisoCard label.vacaciones-field-dias-permiso-goce {
+  flex-direction: row;
+  align-items: flex-start;
+  flex-wrap: nowrap;
+  gap: 10px;
+}
+#fechasPermisoCard label.vacaciones-field-dias-permiso-goce .dias-solicitados-wrap {
+  flex: 0 0 auto;
+  width: auto;
+  min-width: 0;
+}
+#fechasPermisoCard label.vacaciones-field-dias-permiso-goce .vacaciones-label {
+  margin-top: 0;
+  white-space: nowrap;
+}
+
+#fechasPermisoCard #diasSolicitadosPermisoGoceInput {
+  width: 110px;
+  max-width: 100%;
+  flex-shrink: 0;
+  padding-top: 5px;
+  padding-bottom: 5px;
+}
+
+/* Ajustes para "Fecha a justificar" (similar a Fechas a disfrutar) */
+#fechaJustificarCard {
+  align-self: flex-start;
+  min-width: var(--portal-fechas-justificar-min-width);
+  padding: 13px 16px;  /* altura reducida */
+  margin-top: -170px;
+  margin-left: -83px;     /* ajuste fino hacia la derecha */
+}
+
+/* Falta justificada: misma fila que Permiso con goce — Fechas a justificar + No. días */
+#fechaJustificarCard .fechas-falta-justificar-row {
+  flex-direction: row;
+  align-items: flex-start;
+  flex-wrap: nowrap;
+  gap: 0;
+}
+#fechaJustificarCard .fechas-falta-justificar-dias-col {
+  flex: 0 0 auto;
+  margin-left: var(--portal-no-dias-offset-x-falta-justificada);
+  margin-top: var(--portal-no-dias-offset-y-falta-justificada);
+}
+#fechaJustificarCard .fechas-falta-justificar-fechas-col {
+  flex: 0 0 auto;
+  min-width: 0;
+  margin-top: -5px;
+}
+#fechaJustificarCard .fechas-falta-justificar-dias-col .vacaciones-label {
+  font-weight: normal;
+}
+#fechaJustificarCard label.vacaciones-field-dias-falta-justificar {
+  flex-direction: row;
+  align-items: flex-start;
+  flex-wrap: nowrap;
+  gap: 10px;
+}
+#fechaJustificarCard label.vacaciones-field-dias-falta-justificar .dias-solicitados-wrap {
+  flex: 0 0 auto;
+  width: auto;
+  min-width: 0;
+}
+#fechaJustificarCard label.vacaciones-field-dias-falta-justificar .vacaciones-label {
+  margin-top: 0;
+  white-space: nowrap;
+}
+#fechaJustificarCard #diasSolicitadosFaltaJustificadaInput {
+  width: 110px;
+  max-width: 100%;
+  flex-shrink: 0;
+  padding-top: 5px;
+  padding-bottom: 5px;
+}
+
+/* Ajustes para "Fecha del permiso" (Permiso sin goce; fila con No. días) */
+#fechaPermisoSinGoceCard {
+  align-self: flex-start;
+  min-width: var(--portal-fechas-permiso-sin-goce-min-width);
+  padding: 13px 16px;  /* altura un poco recortada */
+  margin-top: -170px;
+  margin-left: -83px;
+}
+
+/* Permiso sin goce: Fechas del permiso + No. días (comandos: --portal-no-dias-offset-*-permiso-sin-goce) */
+#fechaPermisoSinGoceCard .fechas-permiso-sin-goce-row {
+  flex-direction: row;
+  align-items: flex-start;
+  flex-wrap: nowrap;
+  gap: 0;
+}
+#fechaPermisoSinGoceCard .fechas-permiso-sin-goce-dias-col {
+  flex: 0 0 auto;
+  margin-left: var(--portal-no-dias-offset-x-permiso-sin-goce);
+  margin-top: var(--portal-no-dias-offset-y-permiso-sin-goce);
+}
+#fechaPermisoSinGoceCard .fechas-permiso-sin-goce-fechas-col {
+  flex: 0 0 auto;
+  min-width: 0;
+  margin-top: -5px;
+}
+#fechaPermisoSinGoceCard .fechas-permiso-sin-goce-dias-col .vacaciones-label {
+  font-weight: normal;
+}
+#fechaPermisoSinGoceCard label.vacaciones-field-dias-permiso-sin-goce {
+  flex-direction: row;
+  align-items: flex-start;
+  flex-wrap: nowrap;
+  gap: 10px;
+}
+#fechaPermisoSinGoceCard label.vacaciones-field-dias-permiso-sin-goce .dias-solicitados-wrap {
+  flex: 0 0 auto;
+  width: auto;
+  min-width: 0;
+}
+#fechaPermisoSinGoceCard label.vacaciones-field-dias-permiso-sin-goce .vacaciones-label {
+  margin-top: 0;
+  white-space: nowrap;
+}
+#fechaPermisoSinGoceCard #diasSolicitadosPermisoSinGoceInput {
+  width: 110px;
+  max-width: 100%;
+  flex-shrink: 0;
+  padding-top: 5px;
+  padding-bottom: 5px;
+}
+
+/* Columna Falta justificada: Fechas a justificar + Motivo (uno debajo del otro) */
+.falta-justificada-columna {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  align-self: flex-start;
+}
+
+/* Recuadro azul "Motivo" (debajo de Fechas a justificar) */
+#motivoFaltaJustificadaCard {
+  align-self: flex-start;
+  min-width: 690px;
+  padding: 12px 16px;
+  margin-left: -318px;
+  margin-top: 24px;  /* desplazado hacia abajo */
+}
+
+#motivoFaltaJustificadaCard .vacaciones-label {
+  font-weight: normal;
+}
+
+/* Área de texto blanca dentro del recuadro Motivo */
+.motivo-textarea,
+#motivoFaltaJustificadaCard textarea.motivo-textarea {
+  width: 100%;
+  min-height: 80px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  border: 1px solid rgba(148, 163, 184, 0.4);
+  background: rgba(255, 255, 255, 0.95);
+  color: #000000;
+  font-size: 0.85rem;
+  font-family: inherit;
+  resize: vertical;
+  box-sizing: border-box;
+}
+
+#motivoFaltaJustificadaCard textarea.motivo-textarea::placeholder {
+  color: rgba(0, 0, 0, 0.4);
+}
+
+/* Botón Guardar cambios (Falta justificada): alineado con su columna */
+.falta-justificada-columna .guardar-vacaciones-wrap {
+  margin-left: -320px;
+}
+
+/* Columna Permiso sin goce: Fechas del permiso + Motivo (uno debajo del otro) */
+.permiso-sin-goce-columna {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  align-self: flex-start;
+}
+
+/* Recuadro azul "Motivo" (debajo de Fechas del permiso, Permiso sin goce) */
+#motivoPermisoSinGoceCard {
+  align-self: flex-start;
+  min-width: 690px;
+  padding: 12px 16px;
+  margin-left: -318px;
+  margin-top: 24px;
+}
+
+#motivoPermisoSinGoceCard .vacaciones-label {
+  font-weight: normal;
+}
+
+#motivoPermisoSinGoceCard textarea.motivo-textarea::placeholder {
+  color: rgba(0, 0, 0, 0.4);
+}
+
+/* Botón Guardar cambios (Permiso sin goce): alineado con su columna */
+.permiso-sin-goce-columna .guardar-vacaciones-wrap {
+  margin-left: -320px;
+}
+
+/* Columna vertical para Permiso con goce (selector + Fechas del permiso) */
+.permiso-goce-columna {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+/* Botón Guardar cambios en Permiso con goce: alineado a la izquierda con Fechas del permiso */
+.permiso-goce-columna .guardar-vacaciones-wrap {
+  margin-left: -318px;
+}
+.vacaciones-card-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding-top: 4px;
+}
+.vacaciones-card-fields .vacaciones-field {
+  max-width: 100%;
+}
+.vacaciones-card-fields input,
+.vacaciones-card-fields select {
+  width: 100%;
+  box-sizing: border-box;
+}
+.vacaciones-card-fields #diasSolicitadosInput {
+  width: 190px;      /* mismo ancho visual que "Seleccionar permiso" */
+  max-width: 100%;
+  padding-top: 5px;
+  padding-bottom: 5px; /* ajuste fino de altura */
+}
+
+/* Contenedor del botón Guardar cambios (Vacaciones) */
+.guardar-vacaciones-wrap {
+  margin-top: 28px;
+  margin-left: -300px;  /* alineado a la izquierda con Fechas a disfrutar */
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-start;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+/* Texto "No. de días disponibles" debajo de Guardar + Modif., no al lado */
+.guardar-vacaciones-wrap > div:last-child {
+  flex: 0 0 100%;
+  width: 100%;
+  box-sizing: border-box;
+  margin-top: 0;
+}
+
+#guardarFaltaJustificadaWrap > div:last-child {
+  margin-top: var(--portal-dias-disponibles-offset-falta-justificada);
+}
+
+#guardarPermisoSinGoceWrap > div:last-child {
+  margin-top: var(--portal-dias-disponibles-offset-permiso-sin-goce);
+}
+
+/* Permiso con goce: sin margin-top en línea (ganaba al CSS); subir la línea respecto a los botones */
+.portal-dias-disponibles-line {
+  margin-left: 2px;
+  color: #000000;
+  font-size: 0.9rem;
+}
+.portal-dias-saldo-warning {
+  margin-top: 4px;
+  color: #b91c1c;
+  font-size: 0.82rem;
+}
+.diasDisponiblesValue--zero {
+  color: #b91c1c;
+}
+
+.portal-dias-disponibles-line--permiso-goce {
+  margin-top: -20px;
+}
+
+/* Centro de notificaciones (admin.html) */
+.admin-notification-center {
+  margin-left: auto;
+  position: relative;
+  transform: translateX(-132px);
+}
+
+.admin-notification-btn {
+  border: 1px solid rgba(207, 207, 215, 0.45);
+  background: #ffffff;
+  color: #1f2937;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  transition: background-color 0.15s ease, border-color 0.15s ease;
+}
+
+.admin-notification-btn:hover {
+  background: rgba(243, 244, 246, 0.55);
+  border-color: rgba(181, 184, 197, 0.55);
+}
+
+.admin-notification-icon {
+  font-size: 1.05rem;
+  line-height: 1;
+}
+
+.admin-notification-count {
+  position: absolute;
+  top: -6px;
+  right: -5px;
+  min-width: 22px;
+  height: 19px;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: #dc2626;
+  color: #ffffff;
+  font-size: 0.72rem;
+  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid #ffffff;
+}
+
+.admin-notification-panel {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  width: min(430px, 78vw);
+  max-height: 390px;
+  overflow: auto;
+  background: #ffffff;
+  border: 1px solid #d1d5db;
+  border-radius: 12px;
+  box-shadow: 0 10px 20px rgba(15, 23, 42, 0.16);
+  z-index: 60;
+  padding: 10px;
+}
+
+.admin-notification-panel-title {
+  font-size: 0.86rem;
+  font-weight: 700;
+  color: #111827;
+  margin: 2px 4px 10px 4px;
+}
+
+.admin-notification-list {
+  display: grid;
+  gap: 8px;
+}
+
+.admin-notification-item {
+  width: 100%;
+  text-align: left;
+  font: inherit;
+  border: 1px solid #e5e7eb;
+  background: #ffffff;
+  border-radius: 10px;
+  padding: 9px 10px;
+  cursor: pointer;
+}
+
+.admin-notification-item:hover {
+  background: #f9fafb;
+  border-color: #d1d5db;
+}
+
+/* Sin abrir en este centro (por este admin): resalta frente a las ya vistas */
+.admin-notification-item--unread {
+  background: #f0f4ff;
+  border: 1px solid #b4c6f8;
+  border-left: 4px solid #5c56b3;
+  box-shadow: 0 1px 3px rgba(92, 86, 179, 0.14);
+}
+
+.admin-notification-item--unread:hover {
+  background: #e6ebff;
+  border-color: #9ca8e8;
+}
+
+/* Ya abiertas desde notificaciones por este admin */
+.admin-notification-item--read {
+  background: #f9fafb;
+  border: 1px solid #e5e7eb;
+  border-left: 1px solid #e5e7eb;
+  opacity: 1;
+}
+
+.admin-notification-item--read:hover {
+  background: #f3f4f6;
+  border-color: #d1d5db;
+}
+
+.admin-notification-item-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.admin-notification-item-status {
+  border-radius: 999px;
+  padding: 2px 8px;
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+
+.admin-notification-item-status--pendiente {
+  background: #fef3c7;
+  color: #92400e;
+}
+
+.admin-notification-item-status--aprobado {
+  background: #dcfce7;
+  color: #166534;
+}
+
+.admin-notification-item-status--rechazado {
+  background: #fee2e2;
+  color: #991b1b;
+}
+
+.admin-notification-item-operator {
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: #111827;
+}
+
+.admin-notification-item-detail {
+  color: #111827;
+  font-size: 0.84rem;
+  margin: 2px 0;
+}
+
+.admin-notification-item-time {
+  color: #6b7280;
+  font-size: 0.75rem;
+}
+
+.admin-notification-empty {
+  margin: 0;
+  color: #6b7280;
+  font-size: 0.84rem;
+  padding: 4px;
+}
+
+/* Botón "Guardar cambios" para Vacaciones */
+.btn-guardar-vacaciones {
+  border: none;
+  border-radius: 999px;
+  padding: 8px 20px;
+  background: #31305a;
+  color: #ffffff;
+  font-size: 0.9rem;
+  font-weight: 500;
+  cursor: pointer;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.18);
+  transition: background-color 0.16s ease, transform 0.08s ease,
+    box-shadow 0.16s ease;
+}
+
+.btn-guardar-vacaciones:hover {
+  background: #242344;
+  transform: translateY(-1px);
+  box-shadow: 0 3px 6px rgba(15, 23, 42, 0.26);
+}
+
+.btn-guardar-vacaciones:active {
+  transform: translateY(0);
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.18);
+}
+
+/* Botón "Modificar cambios": transparente por defecto */
+.btn-modif-cambios {
+  background: #31305a2e;
+  color: #000000 !important;
+  box-shadow: none !important;
+  border: none !important;
+  opacity: 1;
+}
+
+/* Al guardar (modo locked), recuperar color original del botón */
+.locked-mode .btn-modif-cambios {
+  background: #31305a !important;
+  color: #ffffff !important;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.18) !important;
+  opacity: 1;
+}
+
+/* Al guardar (modo locked), "Guardar cambios" se vuelve transparente */
+.locked-mode .btn-guardar-vacaciones:not(.btn-modif-cambios),
+.locked-mode .btn-guardar-vacaciones:not(.btn-modif-cambios):disabled,
+.locked-mode .btn-guardar-vacaciones:not(.btn-modif-cambios)[disabled] {
+  background: #31305a2e;
+  color: #000000 !important;
+  box-shadow: none !important;
+  opacity: 1 !important;
+}
+
+/* Evitar que hover/active vuelva a colorear */
+.locked-mode .btn-guardar-vacaciones:not(.btn-modif-cambios):hover,
+.locked-mode .btn-guardar-vacaciones:not(.btn-modif-cambios):active {
+  background: #31305a38 !important;
+  transform: none !important;
+  box-shadow: none !important;
+}
+
+/* Asegurar estilo también cuando el botón está deshabilitado */
+.locked-mode .btn-modif-cambios:disabled,
+.locked-mode .btn-modif-cambios[disabled] {
+  background: #31305a !important;
+  color: #ffffff !important;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.18) !important;
+  opacity: 1 !important;
+}
+
+/* Evitar que el hover cambie el color mientras es transparente */
+.btn-modif-cambios:hover {
+  background: #31305a38;
+  transform: none !important;
+  box-shadow: none !important;
+}
+
+.locked-mode .btn-modif-cambios:hover {
+  background: #242344 !important;
+  transform: translateY(-1px) !important;
+  box-shadow: 0 3px 6px rgba(15, 23, 42, 0.26) !important;
+}
+
+/* Botón "Modificar cambios": mover a la derecha en las 4 secciones
+   (Vacaciones, Permiso con goce, Falta justificada, Permiso sin goce) */
+.btn-modif-cambios {
+  margin-left: 12px;
+}
+
+/* Motivo de ausencia > Vacaciones: "Modificar cambios" más a la derecha */
+#btnModifVacaciones {
+  margin-left: 24px;
+}
+
+/* Motivo de ausencia > Permiso con goce: "Modificar cambios" más a la derecha (solo esta sección) */
+#btnModifPermisoGoce {
+  margin-left: 19px;
+}
+
+/* Motivo de ausencia > Falta justificada y Permiso sin goce: "Modificar cambios" 5px a la derecha */
+#btnModifFaltaJustificada,
+#btnModifPermisoSinGoce {
+  margin-left: 17px;
+}
+
+.vacaciones-field {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  font-size: 0.9rem;
+}
+
+/* Quitar negritas solo al título "Fechas a disfrutar" */
+#fechasDisfrutarCard .vacaciones-label {
+  font-weight: normal;
+}
+
+/* Quitar negritas y subir ligeramente el título "Permiso de goce" */
+#permisoGoceCard .vacaciones-label {
+  font-weight: normal;
+  display: inline-block;
+  margin-top: -4px;
+}
+
+/* Subir el selector "Seleccionar permiso" dentro de Permiso de goce */
+#permisoGoceCard select {
+  margin-top: -3px;  /* ligeramente menos arriba */
+}
+
+/* Quitar negritas al título "Fechas del permiso" */
+#fechasPermisoCard .vacaciones-label {
+  font-weight: normal;
+}
+.vacaciones-label {
+  font-weight: 500;
+  color: var(--text);
+}
+
+/* Quitar negritas y subir ligeramente el título "Fechas a justificar" (solo columna de fechas) */
+#fechaJustificarCard .fechas-falta-justificar-fechas-col .vacaciones-label {
+  font-weight: normal;
+  display: inline-block;
+  margin-top: -4px;
+}
+
+/* Quitar negritas y subir ligeramente el título "Fechas del permiso" (solo columna de fechas, Permiso sin goce) */
+#fechaPermisoSinGoceCard .fechas-permiso-sin-goce-fechas-col .vacaciones-label {
+  font-weight: normal;
+  display: inline-block;
+  margin-top: -4px;
+}
+
+/* Quitar negritas solo al texto "No. días" (Vacaciones) */
+#vacacionesCard .vacaciones-label {
+  font-weight: normal;
+}
+.vacaciones-card-fields input,
+.vacaciones-card-fields select {
+  border-radius: 999px;
+  border: 1px solid rgba(148, 163, 184, 0.4);
+  background: rgba(255, 255, 255, 0.9);
+  color: #000000;
+  padding: 4px 12px;
+  font-size: 0.8rem;
+  outline: none;
+  min-width: 0;
+}
+.vacaciones-card-fields input:focus {
+  border-color: rgba(148, 163, 184, 0.4);
+  box-shadow: rgba(217, 218, 221, 0.9);
+  background: rgba(255, 255, 255, 0.9);
+}
+/* Placeholder transparente en la card de vacaciones */
+.vacaciones-card-fields input::placeholder {
+  color: rgba(0, 0, 0, 0.35);
+}
+.vacaciones-card-fields input.input-fechas-invalid {
+  border-color: rgba(248, 113, 113, 0.9);
+}
+.dias-solicitados-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+.dias-solicitados-error {
+  display: block;
+  margin-top: 2px;
+  min-height: 1.2em;
+  font-size: 0.7rem;
+  color: var(--danger);
+}
+
+/* Fechas a disfrutar: 3 selectores Día / Mes / Año */
+.fechas-tres-selectores {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex-wrap: nowrap;
+}
+.fechas-tres-selectores select {
+  flex: 0 0 auto;
+  min-width: 3em;
+  width: 72px;
+  /* Menos padding izquierdo que .vacaciones-card-fields select: texto Día/Mes/Año más a la izquierda (portal.html) */
+  padding-left: 3px;
+}
+.fechas-tres-selectores select[id*="DiaSelect"] {
+  width: var(--fecha-dia-width);
+  min-width: var(--fecha-dia-width);
+}
+.fechas-tres-selectores select[id*="MesSelect"] {
+  width: var(--fecha-mes-width);
+  min-width: var(--fecha-mes-width);
+}
+
+/* Modo bloqueado (portal): mismo aspecto atenuado en día, mes y año (antes el mes quedaba muy negro) */
+.locked-mode .fechas-tres-selectores select:disabled {
+  opacity: 0.62;
+  color: rgba(15, 23, 42, 0.58) !important;
+  -webkit-text-fill-color: rgba(15, 23, 42, 0.58) !important;
+}
+.locked-mode .fechas-tres-selectores .portal-anio-curso {
+  opacity: 0.62;
+  color: rgba(15, 23, 42, 0.58);
+}
+
+.fechas-tres-selectores .portal-anio-curso {
+  flex: 0 0 auto;
+  box-sizing: border-box;
+  width: var(--fecha-anio-width);
+  min-width: var(--fecha-anio-width);
+  min-height: 1.85em;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px 12px;
+  padding-left: 3px;
+  border-radius: 999px;
+  border: 1px solid rgba(148, 163, 184, 0.4);
+  background: rgba(255, 255, 255, 0.9);
+  font-size: 0.8rem;
+  color: #000000;
+  outline: none;
+}
+.fechas-tres-selectores .portal-anio-curso-val {
+  line-height: 1.2;
+}
+.fechas-tres-selectores .portal-anio-curso.portal-anio-curso-placeholder {
+  color: rgba(0, 0, 0, 0.35);
+}
+.fechas-tres-selectores .portal-anio-curso.fecha-fin-autoderivada {
+  pointer-events: none;
+  cursor: default;
+}
+.fechas-sep {
+  color: rgb(255, 255, 255);
+  font-weight: 500;
+  user-select: none;
+}
+.fechas-sep-a {
+  margin: 0 6px;
+}
+.fechas-tres-selectores select.fecha-select-placeholder {
+  color: rgba(0, 0, 0, 0.35);
+}
+.fechas-tres-selectores select.fecha-select-placeholder option:not([value=""]) {
+  color: #000000;
+}
+
+/* Segunda fecha (tras "A"): automática (Vacaciones, Permisos con/sin goce y Falta justificada: + No. días; otros: + días disponibles); sin aspecto bloqueado */
+.fechas-tres-selectores select.fecha-fin-autoderivada:not(:disabled) {
+  pointer-events: none;
+  cursor: default;
+}
+.fechas-tres-selectores input[type="hidden"][id*="AnioSelect"] {
+  display: none;
+}
+
+/* Placeholder gris para "Seleccionar permiso" en Permiso de goce */
+#permisoGoceSelect {
+  color: #000000; /* opciones reales en negro */
+}
+#permisoGoceSelect.permiso-goce-placeholder {
+  color: rgba(0, 0, 0, 0.35); /* solo el placeholder "Seleccionar permiso" */
+}
+
+/* Placeholder gris para Día/Mes/Año de Fechas del permiso (cuando están vacíos) */
+#fechasPermisoCard select[value=""] {
+  color: rgba(0, 0, 0, 0.35);
+}
+#fechasPermisoCard select option:not([value=""]) {
+  color: #000000;
+}
+
+/* Placeholder gris Día/Mes/Año — Permiso sin goce */
+#fechaPermisoSinGoceCard select[value=""] {
+  color: rgba(0, 0, 0, 0.35);
+}
+#fechaPermisoSinGoceCard select option:not([value=""]) {
+  color: #000000;
+}
+
+/* Campo de búsqueda por nombre o ID */
+#searchInput {
+  width: 180px; /* ajusta este valor al tamaño deseado */
+}
+
+input[type="text"]::placeholder {
+  color: rgb(150, 150, 150);
+}
+
+input[type="text"]:focus,
+select:focus {
+  border-color: rgba(148, 163, 184, 0.4);
+  box-shadow: rgba(217, 218, 221, 0.9);
+  background: rgba(255, 255, 255, 0.9);
+}
+
+/* Tables */
+
+.table-wrapper {
+  position: relative;
+  border-radius: var(--radius-md);
+  border: 1px solid rgb(113 130 153);
+  background: rgb(255, 255, 255);
+  backdrop-filter: blur(var(--blur));
+  max-height: 360px;
+  overflow: auto;
+}
+
+/* Scrollbar */
+
+.table-wrapper::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+.table-wrapper::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.table-wrapper::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.6);
+  border-radius: 999px;
+}
+
+/* Table base */
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.82rem;
+}
+
+thead {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: rgba(87, 92, 105);
+}
+
+th,
+td {
+  padding: 7px 10px;
+  text-align: left;
+  white-space: nowrap;
+}
+
+th {
+  font-weight: 600;
+  color: rgb(255, 255, 255);
+  border-bottom: 1px solid rgb(87 92 105);
+}
+
+/* Solo tablas dentro de .table-wrapper (p. ej. Estatus del permiso) usan --table-row-bg/alt */
+.table-wrapper tbody tr:nth-child(odd) {
+  background: var(--table-row-bg);
+}
+
+.table-wrapper tbody tr:nth-child(even) {
+  background: var(--table-row-alt);
+}
+
+.table-wrapper tbody tr:hover {
+  background: rgba(34, 197, 94, 0.14);
+}
+
+/* Badges */
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+}
+
+.badge-turno {
+  background: rgba(56, 189, 248, 0.1);
+  color: #7dd3fc;
+}
+
+.badge-motivo {
+  background: rgba(196, 181, 253, 0.14);
+  color: #ddd6fe;
+}
+
+.badge-success {
+  background: rgba(34, 197, 94, 0.16);
+  color: #30f174;
+}
+
+.badge-warning {
+  background: rgba(250, 204, 21, 0.18);
+  color: #ffeea8;
+}
+
+.badge-danger {
+  background: rgb(243 0 0 / 18%);
+  color: #ff4949;
+}
+
+/* Footer */
+
+.app-footer {
+  border-top: 1px solid rgb(255, 255, 255);
+  padding: 10px 24px 16px;
+  margin-top: 24px;
+  font-size: 0.78rem;
+  color: var(--text-soft);
+  text-align: center;
+}
+
+/* Admin: tarjeta de resumen "Solicitud guardada (portal)" */
+.admin-saved-request-card {
+  width: 420px;
+  max-width: 420px;
+  min-height: 430px;
+  border-radius: 20px;
+  background: rgba(255, 255, 255);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+}
+
+/* admin.html: el ::before genérico de .card puede "derramarse" aquí (overflow: visible) */
+.admin-saved-request-card::before {
+  display: none;
+}
+
+.admin-saved-request-title {
+  margin: 0 0 12px;
+  color: #ffffff;
+  font-size: 1.02rem;
+  font-weight: 700;
+  letter-spacing: 0.2px;
+  padding: 11px 13px;
+  background: #31305a;
+  border-radius: 12px;
+}
+
+/* Fuera del flujo: el resumen no mueve la fila; el ajuste por motivo es solo translateY (app.js) */
+.admin-saved-request-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  position: absolute;
+  left: 18px;
+  right: 18px;
+  bottom: 12px;
+  margin: 0;
+  z-index: 2;
+}
+
+.admin-saved-action-btn {
+  border: 1px solid #ffffff;
+  border-radius: 999px;
+  padding: 6px 12px;
+  font-size: 0.82rem;
+  font-weight: 700;
+  cursor: pointer;
+  color: #ffffff;
+  transition: opacity 0.15s ease;
+}
+
+.admin-saved-action-btn:hover {
+  background: #6763ac;
+}
+
+.admin-saved-action-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
+.admin-saved-action-accept {
+  background: #5c589d;
+}
+
+.admin-saved-action-reject {
+  background: #5c589d;
+}
+
+.admin-saved-request-content {
+  color: #1d2148;
+  font-size: 0.89rem;
+  line-height: 1.4;
+  padding: 0 2px 72px 0;
+  background: transparent;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+.admin-saved-request-content > div {
+  display: grid;
+  gap: 10px;
+}
+
+.admin-saved-request-content > div > div {
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.96) 0%, rgba(246, 248, 255, 0.92) 100%);
+  border: 1px solid rgba(92, 86, 179, 0.35);
+  border-left: 6px solid #5c56b3;
+  border-radius: 12px;
+  padding: 9px 11px;
+}
+
+.admin-saved-request-content strong {
+  color: #000000;
+}
+
+/* Portal local: bloque "Estatus del permiso" */
+.estatus-permiso-block {
+  position: absolute;
+  top: 200px;
+  left: 10px;
+  color: #000000;
+}
+
+/* admin.html: fila flex; la posición de "Solicitud guardada" sigue en la propia card (margin en HTML) */
+.admin-saved-estatus-wrap {
+  display: flex;
+  align-items: flex-start;
+  gap: 24px;
+  /* Misma fila: evita que "Estatus del permiso" baje a una segunda línea */
+  flex-wrap: nowrap;
+  margin: 36px 0 0 37px;
+}
+
+/* Columna izquierda (foto + tabla): ancho acotado para no empujar Solicitud guardada */
+.admin-left-column {
+  flex: 0 0 auto;
+  width: fit-content;
+  max-width: 240px;
+}
+
+/* Historial debajo de la fila foto/tablas | solicitud (no participa del flex superior) */
+.admin-history-section {
+  margin: 0 0 0 40px;
+  max-width: min(1180px, calc(100vw - 40px));
+  width: min(1180px, calc(100vw - 40px));
+  padding-top: 0;
+}
+
+.admin-history-toggle-wrap {
+  margin: 0;
+}
+
+.admin-history-content.admin-history-content--below-table {
+  margin: 10px 0 0 0;
+}
+
+/* Admin: historial de solicitudes (expandible) */
+.admin-history-toggle-btn {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: transparent;
+  border: none;
+  color: #000000;
+  font-weight: 700;
+  cursor: pointer;
+  padding: 0;
+  font-size: 1rem;
+  margin-top: 0;
+}
+
+.admin-history-arrow {
+  width: 10px;
+  height: 10px;
+  display: inline-block;
+  border-right: 2px solid #000000;
+  border-bottom: 2px solid #000000;
+  transform: rotate(45deg) translateY(-1px);
+  transition: transform 0.15s ease;
+}
+
+/* Cuando está expandido, rotar la flecha para indicar "ocultar" */
+.admin-history-toggle-btn[aria-expanded="true"] .admin-history-arrow {
+  transform: rotate(-135deg) translateY(-1px);
+}
+
+.admin-history-content {
+  color: #000000;
+  font-size: 0.85rem;
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+
+.admin-history-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  margin: 0;
+  padding: 2px 0 4px 0;
+  border-left: none;
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+
+/* Diseño 1 — recuadros con borde redondeado (aplicar .admin-history-item--design-1 en el HTML para recuperarlo) */
+.admin-history-item--design-1 {
+  border: 1px solid #d9dfec;
+  border-radius: 14px;
+  background: #ffffff;
+  padding: 10px 12px;
+}
+
+.admin-history-item-title--design-1 {
+  font-weight: 800;
+  color: #0f172a;
+  margin-bottom: 6px;
+}
+
+/* Diseño 2 — tarjeta con franja izquierda oscura (article + .admin-history-item-inner como ahora en el HTML) */
+.admin-history-item--design-2 {
+  margin-bottom: 12px;
+}
+
+.admin-history-item--design-2 .admin-history-item-inner {
+  border: 1px solid #e2e8f0;
+  border-left: 4px solid #0f172a;
+  border-radius: 10px;
+  background: #ffffff;
+  overflow: hidden;
+  box-shadow: 0 2px 10px rgba(15, 23, 42, 0.07);
+}
+
+.admin-history-item--design-2 .admin-history-item-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px 12px;
+  padding: 11px 14px 10px;
+  background: linear-gradient(180deg, #f8fafc 0%, #ffffff 100%);
+  border-bottom: 1px solid #e2e8f0;
+}
+
+.admin-history-item--design-2 .admin-history-item-badge {
+  font-weight: 800;
+  font-size: 0.8rem;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: #0f172a;
+}
+
+.admin-history-item--design-2 .admin-history-item-date {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: #64748b;
+  white-space: nowrap;
+}
+
+.admin-history-item--design-2 .admin-history-item-body {
+  padding: 10px 14px 12px;
+  font-size: 0.82rem;
+  line-height: 1.45;
+  color: #1e293b;
+}
+
+.admin-history-item--design-2 .admin-history-item-body > div {
+  padding: 6px 0;
+  border-bottom: 1px solid #f1f5f9;
+}
+
+.admin-history-item--design-2 .admin-history-item-body > div:last-child {
+  border-bottom: none;
+}
+
+.admin-history-item--design-2 .admin-history-item-body strong {
+  font-weight: 700;
+  color: #334155;
+}
+
+.admin-history-item--design-2 .admin-history-item-footer {
+  padding: 9px 14px 11px;
+  font-size: 0.8rem;
+  color: #334155;
+  background: #f8fafc;
+  border-top: 1px solid #e2e8f0;
+}
+
+.admin-history-item--design-2 .admin-history-item-footer strong {
+  font-weight: 700;
+  color: #0f172a;
+}
+
+/* Diseño actual — tarjeta interior (sin conector de línea temporal) */
+.admin-history-item {
+  position: relative;
+  margin: 0 0 18px 0;
+  padding: 0;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  overflow: visible;
+}
+
+.admin-history-item:last-child {
+  margin-bottom: 0;
+}
+
+.admin-history-item::before {
+  display: none;
+}
+
+.admin-history-item-inner {
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
+  border: 1px solid #d4d4d8;
+  border-radius: 10px;
+  background: #ffffff;
+  box-shadow: 0 2px 6px rgba(24, 24, 27, 0.06);
+  overflow: hidden;
+}
+
+.admin-history-item-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 14px;
+  padding: 10px 13px;
+  background: #fafafa;
+  border-bottom: 1px dashed #d4d4d8;
+}
+
+.admin-history-item-badge {
+  font-weight: 700;
+  font-size: 0.88rem;
+  letter-spacing: normal;
+  text-transform: none;
+  color: #18181b;
+}
+
+.admin-history-item-head-main {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.admin-history-item-approved {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  margin-left: 4px;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  line-height: 1;
+  color: #166534;
+  background: #dcfce7;
+  border: 1px solid #86efac;
+}
+
+.admin-history-item-rejected {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  margin-left: 4px;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  line-height: 1;
+  color: #991b1b;
+  background: #fee2e2;
+  border: 1px solid #fca5a5;
+}
+
+/* Mismo aspecto que .estatus-pill-pendiente (tabla Administrador–Estado) */
+.admin-history-item-pendiente {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  margin-left: 4px;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  line-height: 1;
+  background: #cd8b48;
+  color: #4d3012;
+  border: none;
+}
+
+.admin-history-item-na {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  margin-left: 4px;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  line-height: 1;
+  color: #4d3012;
+  background: #cd8b48;
+}
+
+.admin-history-item-date {
+  font-size: 0.74rem;
+  font-weight: 600;
+  color: #71717a;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.admin-history-item-body {
+  padding: 11px 13px 12px;
+  font-size: 0.82rem;
+  line-height: 1.5;
+  color: #27272a;
+  background: #ffffff;
+}
+
+.admin-history-item-body > div {
+  padding: 5px 0 5px 10px;
+  border-left: 2px solid #e4e4e7;
+  margin-bottom: 6px;
+}
+
+.admin-history-item-body > div:last-child {
+  margin-bottom: 0;
+}
+
+.admin-history-item-body strong {
+  font-weight: 700;
+  color: #3f3f46;
+}
+
+.admin-history-item-footer {
+  padding: 8px 13px 10px;
+  font-size: 0.78rem;
+  color: #52525b;
+  background: #f4f4f5;
+  border-top: 1px solid #e4e4e7;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.admin-history-item-footer strong {
+  font-weight: 700;
+  color: #18181b;
+}
+
+.admin-history-item-pdf-btn {
+  border: 1px solid #cbd5e1;
+  background: #ffffff;
+  color: #111827;
+  border-radius: 999px;
+  padding: 4px 10px;
+  font-size: 0.74rem;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.admin-history-item-pdf-btn:hover {
+  background: #eef2ff;
+}
+
+.estatus-permiso-block--admin {
+  position: relative;
+  top: auto;
+  left: auto;
+  margin-top: -20px;
+  margin-left: 26px;
+  flex: 0 0 auto;
+}
+
+.estatus-permiso-label {
+  margin: 0 0 10px;
+  color: #000000;
+  font-weight: 700;
+  font-size: 0.92rem;
+}
+
+.estatus-permiso-table {
+  /* Controla solo la altura del encabezado azul "Administrador - Estado" */
+  --estatus-admin-head-height: 48px;
+  border-collapse: separate;
+  border-spacing: 0 8px;
+  min-width: 280px;
+  background: transparent;
+  border: none;
+  border-radius: 14px;
+  overflow: visible;
+  box-shadow: none;
+}
+
+.estatus-permiso-table td {
+  border: 1px solid #d9dfec;
+  padding: 9px 12px;
+  color: #0f172a;
+  font-size: 0.85rem;
+  background: #ffffff;
+}
+
+.estatus-permiso-table tr td:first-child {
+  border-right: none;
+  border-radius: 10px 0 0 10px;
+  min-width: 160px;
+}
+
+.estatus-permiso-table td:last-child {
+  border-left: none;
+  text-align: center;
+  font-weight: 700;
+  color: #ffffff;
+  border-radius: 0 10px 10px 0;
+  min-width: 110px;
+}
+
+.estatus-permiso-table .estatus-permiso-head {
+  background: #31305a;
+  color: #ffffff;
+  font-weight: 700;
+  border-color: #31305a;
+  height: var(--estatus-admin-head-height);
+  min-height: var(--estatus-admin-head-height);
+  padding-top: 0;
+  padding-bottom: 0;
+  vertical-align: middle;
+}
+
+.estatus-permiso-table tr:not(:first-child):nth-child(even) td {
+  background: #f8faff;
+}
+
+.estatus-permiso-table tr:nth-child(3) td {
+  background: #f8faff;
+}
+
+/* Fila "Estatus final": mismo sitio que el resto, sin recuadro (borde/sombra/fondo de celda) */
+.estatus-permiso-table tr.estatus-permiso-final-row td {
+  border: none;
+  box-shadow: none;
+  background: transparent;
+}
+
+.estatus-permiso-table tr.estatus-permiso-final-row td:first-child {
+  border-radius: 0;
+  color: #0f172a;
+}
+
+.estatus-permiso-table tr.estatus-permiso-final-row td:last-child {
+  border-radius: 0;
+  color: inherit;
+}
+
+.estatus-permiso-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin-top: 14px;
+  margin-left: 16px;
+}
+
+.estatus-permiso-action-btn {
+  border: none;
+  border-radius: 999px;
+  padding: 7px 14px;
+  font-size: 0.78rem;
+  font-weight: 700;
+  cursor: pointer;
+  color: #ffffff;
+  background: #31305a;
+  box-shadow: 0 4px 10px rgba(15, 23, 42, 0.12);
+  transition: opacity 0.15s ease, transform 0.1s ease;
+}
+
+.estatus-permiso-action-btn:hover {
+  opacity: 0.92;
+}
+
+.estatus-permiso-action-btn:active {
+  transform: scale(0.98);
+}
+
+.estatus-permiso-action-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
+/* admin.html: ajuste fino del botón único "Modif. Estado" */
+.estatus-permiso-actions .estatus-permiso-btn-modif {
+  margin-left: 70px;
+}
+
+.estatus-pill {
+  display: inline-block;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 0.78rem;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.estatus-pill-pendiente {
+  background: #cd8b48;
+  color: #4d3012;
+}
+
+.estatus-pill-aprobado {
+  background: #dcfce7;
+  color: #14532d;
+  border: 1px solid #22c55e;
+}
+
+.estatus-pill-rechazado {
+  background: #fee2e2;
+  color: #991b1b;
+  border: 1px solid #f87171;
+}
+
+.admin-permiso-decision-status {
+  margin-left: 8px;
+  font-size: 0.78rem;
+  color: #1f2937;
+  align-self: center;
+  max-width: 200px;
+}
+
+/* Responsive */
+
+@media (max-width: 1040px) {
+  .layout {
+    grid-template-columns: 1fr;
+    grid-template-rows: auto;
+  }
+}
+
+@media (max-width: 720px) {
+  .app-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 6px;
+    padding-inline: 18px;
+  }
+
+  .layout {
+    padding-inline: 14px;
+  }
+
+  .card {
+    padding-inline: 14px;
+  }
+
+  th,
+  td {
+    padding: 6px 8px;
+  }
+
+  .filters {
+    width: 100%;
+    flex-wrap: wrap;
+    justify-content: flex-start;
+  }
+}
+
