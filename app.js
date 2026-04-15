@@ -85,7 +85,12 @@ function backupPortalRequestToFirestore(opId, payload, tipo) {
     .collection("solicitudes")
     .add(doc)
     .then(function (ref) {
-      console.log("[Firestore] solicitud respaldada:", ref.id);
+      console.log(
+        "[Firestore] solicitud respaldada | folio:",
+        folio,
+        "| docId:",
+        ref.id
+      );
       return ref.id;
     })
     .catch(function (err) {
