@@ -1,3 +1,36 @@
+// Firebase init (temporal básico)
+const firebaseConfig = {
+  apiKey: "AIzaSyANEg1_42fxRixxH_oqYwISMJ8ZOi5fwiM",
+  authDomain: "vacaciones-portal.firebaseapp.com",
+  projectId: "vacaciones-portal",
+  storageBucket: "vacaciones-portal.firebasestorage.app",
+  messagingSenderId: "464510476525",
+  appId: "1:464510476525:web:e5d9d2a7ef72ad620d2ce4",
+  measurementId: "G-STSFVQ5Q4Z"
+};
+
+let db = null;
+window.__firebaseStatus = "not_initialized";
+
+try {
+  if (typeof firebase !== "undefined") {
+    if (!firebase.apps.length) {
+      firebase.initializeApp(firebaseConfig);
+    }
+    db = firebase.firestore();
+    window.db = db;
+    window.__firebaseStatus = "ok";
+    console.log("[Firebase] inicializado OK");
+  } else {
+    window.__firebaseStatus = "sdk_missing";
+    console.warn("[Firebase] SDK no cargado");
+  }
+} catch (err) {
+  window.__firebaseStatus = "error";
+  window.__firebaseError = String(err && err.message ? err.message : err);
+  console.error("[Firebase] error al inicializar:", err);
+}
+
 // Configuración básica
 const MOTIVOS = [
   "Vacaciones",
