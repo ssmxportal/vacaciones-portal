@@ -31,6 +31,48 @@ try {
   console.error("[Firebase] error al inicializar:", err);
 }
 
+/**
+ * Respaldo en la nube: guarda una solicitud del portal en Firestore.
+ * No reemplaza localStorage por ahora; se ejecuta en paralelo como copia central.
+ */
+function backupPortalRequestToFirestore(opId, payload, tipo) {
+  if (!db) return Promise.resolve(null);
+  const operatorId = String(opId || "").trim();
+  if (!operatorId || !payload || typeof payload !== "object") {
+    return Promise.resolve(null);
+  }
+
+  const motive =
+    payload && payload.motive != null ? String(payload.motive).trim() : "";
+  const values =
+    payload && payload.values && typeof payload.values === "object"
+      ? payload.values
+      : {};
+
+  const doc = {
+    operatorId: operatorId,
+    tipo: String(tipo || "Solicitud"),
+    motive: motive,
+    payload: payload,
+    values: values,
+    createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+    source: "portal",
+    status: "pendiente",
+  };
+
+  return db
+    .collection("solicitudes")
+    .add(doc)
+    .then(function (ref) {
+      console.log("[Firestore] solicitud respaldada:", ref.id);
+      return ref.id;
+    })
+    .catch(function (err) {
+      console.warn("[Firestore] no se pudo respaldar solicitud:", err);
+      return null;
+    });
+}
+
 // Configuración básica
 const MOTIVOS = [
   "Vacaciones",
@@ -7070,6 +7112,12 @@ function init() {
         } catch (e) {
           /* ignore */
         }
+        // Respaldo central en Firestore (no bloquea la experiencia local).
+        backupPortalRequestToFirestore(
+          String(operatorScopeId),
+          payloadToStore,
+          tipo
+        );
       }
 
       clearPortalModificarCambiosActiveForAdminLock(operatorScopeId);
