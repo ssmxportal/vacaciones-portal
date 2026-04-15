@@ -349,7 +349,7 @@ const MOTIVOS = [
   "Falta justificada",
   "Permiso sin goce"
 ];
-const DIAS_VACACIONALES_BASE = 25;
+const DIAS_VACACIONALES_BASE = 20;
 
 /**
  * Escala html2canvas al generar PDF. Más alto = más nitidez pero más lento (todo corre en el
@@ -398,7 +398,7 @@ function getVacationDaysConsumed(opId) {
 }
 
 /**
- * Maestro / utilidades: devuelve al operador el tope completo (25).
+ * Maestro / utilidades: devuelve al operador el tope completo (20).
  * Los días gastados acumulados pasan a 0; notifica al portal para actualizar "días disponibles".
  */
 function clearVacationDaysConsumedStorageForOperator(opId) {
@@ -419,7 +419,7 @@ function clearVacationDaysConsumedStorageForOperator(opId) {
   broadcastVacationSaldoReset(id);
 }
 
-/** Saldo restante en portal: 25 menos días ya consumidos (tras cierres aprobados con No. días). */
+/** Saldo restante en portal: 20 menos días ya consumidos (tras cierres aprobados con No. días). */
 function getPortalVacationSaldoRestante(opId) {
   if (!opId) return DIAS_VACACIONALES_BASE;
   const consumed = getVacationDaysConsumed(opId);
@@ -3163,7 +3163,7 @@ function syncPortalDiasDisponiblesLabels() {
  * Campo numérico "No. días" (Vacaciones, permisos con/sin goce o Falta justificada): validación 1…saldo y recálculo de fecha fin.
  * @param {string} inputId
  * @param {string|null} errorId id del span de error, o null si no hay mensajes bajo el campo
- * @param {{ silentDiasField?: boolean }} [options] Sin mensajes bajo el campo; valor fuera de 1–25 se borra al presionar Enter (Permiso con goce, Falta justificada, Permiso sin goce)
+ * @param {{ silentDiasField?: boolean }} [options] Sin mensajes bajo el campo; valor fuera de 1–20 se borra al presionar Enter (Permiso con goce, Falta justificada, Permiso sin goce)
  */
 function bindPortalDiasSolicitadosInputConSync(inputId, errorId, options) {
   const diasSolicitadosInput = document.getElementById(inputId);
@@ -3190,7 +3190,7 @@ function bindPortalDiasSolicitadosInputConSync(inputId, errorId, options) {
       return false;
     }
     const n = parseInt(v, 10);
-    /* Solo 1…25: si se usara saldo restante y fuera 0, n > 0 invalidaría cualquier dígito. */
+    /* Solo 1…20: si se usara saldo restante y fuera 0, n > 0 invalidaría cualquier dígito. */
     if (isNaN(n) || n < 1 || n > maxRango) {
       if (silentDiasField) {
         if (desdeEnter) diasSolicitadosInput.value = "";
@@ -8075,6 +8075,7 @@ function init() {
  * maestroop.html — Reset: solicitud en curso con estatus final aún pendiente (no aprobado/rechazado
  * por los 3 admins) → historial con estadoHistorial "na" (pill «Archivada») antes de vaciar el borrador.
  * Si la última fila del historial era de otro ciclo cerrado pero el borrador actual es distinto, se añade fila nueva.
+ * Si la solicitud ya constaba como aprobada/rechazada en el historial, no se sustituye por Archivada.
  * @returns {boolean} true si se registró o actualizó una entrada como Archivada
  */
 function archivePendienteSolicitudAsNaForMaestroReset(operatorId) {
@@ -8083,6 +8084,18 @@ function archivePendienteSolicitudAsNaForMaestroReset(operatorId) {
 
   migrateGlobalSavedPayloadToOperatorIfNeeded(oid);
   migrateGlobalAdminRequestHistoryToOperatorIfNeeded(oid);
+
+  const historyPre = getAdminRequestHistory(oid);
+  if (historyPre.length) {
+    const liPre = latestHistoryEntryIndex(historyPre);
+    const latestPre = historyPre[liPre];
+    const normPre = normalizeHistorialEstadoStored(
+      latestPre && latestPre.estadoHistorial
+    );
+    if (normPre === "aprobado" || normPre === "rechazado") {
+      return false;
+    }
+  }
 
   const s = withComputedEstatusFinal(getPermisoStatus(oid));
   const finalV = normalizePermisoRowValue(s.estatusFinal);
@@ -8138,6 +8151,12 @@ function archivePendienteSolicitudAsNaForMaestroReset(operatorId) {
     latest && latest.payload ? JSON.stringify(latest.payload) : "";
 
   if (latestPayloadStr === payloadStr) {
+    const verdictLatest = normalizeHistorialEstadoStored(
+      latest && latest.estadoHistorial
+    );
+    if (verdictLatest === "aprobado" || verdictLatest === "rechazado") {
+      return false;
+    }
     history = history.map((entry, idx) =>
       idx === latestIdx
         ? {
