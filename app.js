@@ -3662,6 +3662,42 @@ function syncAdminRequestHistoryEstados(opId) {
   setAdminRequestHistory(opId, updated);
 }
 
+/**
+ * Tras borrar cookies / datos del sitio o perder el respaldo guardado: si ya no hay
+ * solicitud persistida válida pero el historial sigue con la última fila en trámite,
+ * dejarla como Archivada (na). No sustituye aprobado/rechazado ni filas ya archivadas.
+ */
+function reconcileHistoryArchivadaWhenSavedSolicitudMissing(opId) {
+  const id = String(opId || "").trim();
+  if (!id || id === "global") return;
+  syncAdminRequestHistoryEstados(id);
+  if (operatorHasValidSavedRequestInStorage(id)) return;
+  const history = getAdminRequestHistory(id);
+  if (!history.length) return;
+  const latestIdx = latestHistoryEntryIndex(history);
+  const latest = history[latestIdx];
+  if (isMaestroArchivadaMarker(latest)) return;
+  const leNorm = normalizeHistorialEstadoStored(latest && latest.estadoHistorial);
+  if (
+    leNorm === "aprobado" ||
+    leNorm === "rechazado" ||
+    leNorm === "na"
+  ) {
+    return;
+  }
+  const updated = history.map(function (entry, idx) {
+    if (idx === latestIdx) {
+      return Object.assign({}, entry, { estadoHistorial: "na" });
+    }
+    const prev = entry && entry.estadoHistorial;
+    if (prev === "aprobado" || prev === "rechazado") {
+      return Object.assign({}, entry, { estadoHistorial: prev });
+    }
+    return Object.assign({}, entry, { estadoHistorial: "na" });
+  });
+  setAdminRequestHistory(id, updated);
+}
+
 function renderHistorialEstadoPillHtml(estado) {
   const e =
     estado === "aprobado" ||
@@ -6884,6 +6920,14 @@ function init() {
       window.sessionStorage.removeItem(lockedModeSessionKey);
       window.sessionStorage.removeItem(lockedPayloadSessionKey);
       window.sessionStorage.removeItem(lockedRequiredSessionKey);
+      if (operatorScopeId !== "global") {
+        reconcileHistoryArchivadaWhenSavedSolicitudMissing(operatorScopeId);
+        try {
+          maybeRenderPortalRequestHistory();
+        } catch (e) {
+          /* ignore */
+        }
+      }
     }
 
     let lockedModeFlag = window.sessionStorage.getItem(lockedModeSessionKey);
