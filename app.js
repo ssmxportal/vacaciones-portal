@@ -35,6 +35,18 @@ try {
  * Respaldo en la nube: guarda una solicitud del portal en Firestore.
  * No reemplaza localStorage por ahora; se ejecuta en paralelo como copia central.
  */
+function buildSolicitudReadableFolio(operatorId) {
+  const d = new Date();
+  const yyyy = String(d.getFullYear());
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const dd = String(d.getDate()).padStart(2, "0");
+  const hh = String(d.getHours()).padStart(2, "0");
+  const min = String(d.getMinutes()).padStart(2, "0");
+  const sec = String(d.getSeconds()).padStart(2, "0");
+  const rand = Math.random().toString(36).slice(2, 6).toUpperCase();
+  return `SOL-${String(operatorId)}-${yyyy}${mm}${dd}-${hh}${min}${sec}-${rand}`;
+}
+
 function backupPortalRequestToFirestore(opId, payload, tipo) {
   if (!db) return Promise.resolve(null);
   const operatorId = String(opId || "").trim();
@@ -48,9 +60,18 @@ function backupPortalRequestToFirestore(opId, payload, tipo) {
     payload && payload.values && typeof payload.values === "object"
       ? payload.values
       : {};
+  let operatorName = "";
+  try {
+    operatorName = String(resolveHistoryFooterOperatorNombre(operatorId) || "").trim();
+  } catch (e) {
+    operatorName = "";
+  }
+  const folio = buildSolicitudReadableFolio(operatorId);
 
   const doc = {
+    folio: folio,
     operatorId: operatorId,
+    operatorName: operatorName || "Operador " + operatorId,
     tipo: String(tipo || "Solicitud"),
     motive: motive,
     payload: payload,
