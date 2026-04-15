@@ -90,12 +90,256 @@ function backupPortalRequestToFirestore(opId, payload, tipo) {
         "[Firestore] solicitud respaldada | folio:",
         folio
       );
+      try {
+        if (window.__firestoreHistorialByOperator && operatorId) {
+          delete window.__firestoreHistorialByOperator[operatorId];
+        }
+      } catch (e) {
+        /* ignore */
+      }
+      const histContent = document.getElementById("portalHistoryContent");
+      if (
+        histContent &&
+        histContent.style.display !== "none" &&
+        operatorId
+      ) {
+        refreshPortalHistoryFromFirestore(operatorId);
+      }
       return folio;
     })
     .catch(function (err) {
       console.warn("[Firestore] no se pudo respaldar solicitud:", err);
       return null;
     });
+}
+
+/** Cache en memoria: historial remoto por operador (portal + admin «solo operador»). */
+window.__firestoreHistorialByOperator = window.__firestoreHistorialByOperator || {};
+/** Lista plana para admin «todos» (últimas N por fecha en Firestore). */
+window.__firestoreHistorialAll = window.__firestoreHistorialAll || null;
+
+const FIRESTORE_SOLICITUDES_LIMIT_ALL = 200;
+
+function firestoreDocToHistoryEntry(docSnap) {
+  const d = docSnap.data() || {};
+  const createdAt = d.createdAt;
+  let ts = Date.now();
+  if (createdAt && typeof createdAt.toMillis === "function") {
+    ts = createdAt.toMillis();
+  } else if (createdAt && typeof createdAt.seconds === "number") {
+    ts = createdAt.seconds * 1000;
+  }
+  const statusRaw = String(d.status != null ? d.status : "pendiente")
+    .trim()
+    .toLowerCase();
+  let estadoHistorial = "pendiente";
+  if (statusRaw === "aprobado") estadoHistorial = "aprobado";
+  else if (statusRaw === "rechazado") estadoHistorial = "rechazado";
+  else if (
+    statusRaw === "na" ||
+    statusRaw === "archivada" ||
+    statusRaw === "n/a"
+  ) {
+    estadoHistorial = "na";
+  }
+
+  const operatorId = String(d.operatorId != null ? d.operatorId : "").trim();
+  const operatorName =
+    d.operatorName != null ? String(d.operatorName).trim() : "";
+
+  let payload = d.payload;
+  if (!payload || typeof payload !== "object") payload = {};
+
+  return {
+    ts: ts,
+    tipo: d.tipo != null ? String(d.tipo) : "Solicitud",
+    payload: payload,
+    estadoHistorial: estadoHistorial,
+    operatorId: operatorId,
+    operatorName: operatorName,
+    fromFirestore: true,
+    firestoreFolio: d.folio != null ? String(d.folio) : docSnap.id,
+  };
+}
+
+/**
+ * Combina historial local y copias en Firestore; si hay duplicado cercano en tiempo y mismo
+ * motivo, se conserva la fila de Firestore.
+ */
+function mergeHistoryEntriesPreferFirestore(localArr, remoteArr) {
+  const merged = [];
+  const all = []
+    .concat((remoteArr || []).map(function (e) {
+      return { entry: e, src: "fs" };
+    }))
+    .concat((localArr || []).map(function (e) {
+      return { entry: e, src: "loc" };
+    }));
+  all.sort(function (a, b) {
+    const ta = a.entry && a.entry.ts ? a.entry.ts : 0;
+    const tb = b.entry && b.entry.ts ? b.entry.ts : 0;
+    return tb - ta;
+  });
+  for (let i = 0; i < all.length; i++) {
+    const e = all[i].entry;
+    const src = all[i].src;
+    const motive =
+      e && e.payload && e.payload.motive != null
+        ? String(e.payload.motive)
+        : "";
+    let dupIdx = -1;
+    for (let j = 0; j < merged.length; j++) {
+      const o = merged[j].entry;
+      const om =
+        o && o.payload && o.payload.motive != null
+          ? String(o.payload.motive)
+          : "";
+      const t1 = o && o.ts ? o.ts : 0;
+      const t2 = e && e.ts ? e.ts : 0;
+      if (motive === om && Math.abs(t1 - t2) < 20000) {
+        dupIdx = j;
+        break;
+      }
+    }
+    if (dupIdx >= 0) {
+      if (src === "fs") merged[dupIdx] = { entry: e, src: src };
+      continue;
+    }
+    merged.push({ entry: e, src: src });
+  }
+  return merged.map(function (x) {
+    return x.entry;
+  });
+}
+
+function refreshPortalHistoryFromFirestore(opId) {
+  const id = String(opId || "").trim();
+  if (!db) {
+    maybeRenderPortalRequestHistory();
+    return;
+  }
+  if (!id) {
+    maybeRenderPortalRequestHistory();
+    return;
+  }
+  db.collection("solicitudes")
+    .where("operatorId", "==", id)
+    .get()
+    .then(function (qs) {
+      window.__firestoreHistorialByOperator[id] = qs.docs.map(
+        firestoreDocToHistoryEntry
+      );
+      maybeRenderPortalRequestHistory();
+    })
+    .catch(function (err) {
+      console.warn("[Firestore] historial portal:", err);
+      maybeRenderPortalRequestHistory();
+    });
+}
+
+function getAdminHistorialFirestoreMode() {
+  const r = document.querySelector(
+    'input[name="adminHistorialFsScope"]:checked'
+  );
+  if (r && r.value === "all") return "all";
+  return "operator";
+}
+
+function setupAdminHistorialFirestoreScopeControls() {
+  const wrap = document.getElementById("adminHistorialFsScopeWrap");
+  if (!wrap || wrap.dataset.bound === "1") return;
+  wrap.dataset.bound = "1";
+  wrap.addEventListener("change", function () {
+    const content = document.getElementById("adminHistoryContent");
+    if (content && content.style.display !== "none") {
+      refreshAdminHistorialFromFirestoreAndRender();
+    }
+  });
+}
+
+function refreshAdminHistorialFromFirestoreAndRender() {
+  const list = document.getElementById("adminHistoryList");
+  if (!list) return;
+
+  const mode = getAdminHistorialFirestoreMode();
+  if (mode === "all") {
+    if (!db) {
+      window.__firestoreHistorialAll = [];
+      renderAdminRequestHistoryUnified();
+      return;
+    }
+    db.collection("solicitudes")
+      .orderBy("createdAt", "desc")
+      .limit(FIRESTORE_SOLICITUDES_LIMIT_ALL)
+      .get()
+      .then(function (qs) {
+        window.__firestoreHistorialAll = qs.docs.map(firestoreDocToHistoryEntry);
+        renderAdminRequestHistoryUnified();
+      })
+      .catch(function (err) {
+        console.warn("[Firestore] historial admin (todos):", err);
+        renderAdminRequestHistoryUnified();
+      });
+    return;
+  }
+
+  const opId =
+    state.filtered && state.filtered.length === 1 && state.filtered[0].id
+      ? String(state.filtered[0].id)
+      : "";
+  if (!opId) {
+    renderAdminRequestHistoryUnified();
+    return;
+  }
+  if (!db) {
+    renderAdminRequestHistoryUnified();
+    return;
+  }
+  db.collection("solicitudes")
+    .where("operatorId", "==", opId)
+    .get()
+    .then(function (qs) {
+      window.__firestoreHistorialByOperator[opId] = qs.docs.map(
+        firestoreDocToHistoryEntry
+      );
+      renderAdminRequestHistoryUnified();
+    })
+    .catch(function (err) {
+      console.warn("[Firestore] historial admin (operador):", err);
+      renderAdminRequestHistoryUnified();
+    });
+}
+
+function renderAdminRequestHistoryUnified() {
+  const list = document.getElementById("adminHistoryList");
+  if (!list) return;
+
+  const mode = getAdminHistorialFirestoreMode();
+  if (mode === "all") {
+    const entries = window.__firestoreHistorialAll || [];
+    const sorted = entries.slice().sort(function (a, b) {
+      return (b && b.ts ? b.ts : 0) - (a && a.ts ? a.ts : 0);
+    });
+    const html = buildAdminRequestHistoryItemsFromEntries(sorted, {
+      defaultOpId: "",
+      omitPdfButton: false,
+      forceOperatorFooter: true,
+    });
+    list.innerHTML =
+      html ||
+      "<p style='margin:0;color:#000000;'>No hay solicitudes en Firestore (revisa permisos o el índice de <code>createdAt</code>).</p>";
+    return;
+  }
+
+  const opId =
+    state.filtered && state.filtered.length === 1 && state.filtered[0].id
+      ? String(state.filtered[0].id)
+      : "";
+  if (!opId) {
+    list.innerHTML = "";
+    return;
+  }
+  renderAdminRequestHistory(opId);
 }
 
 // Configuración básica
@@ -784,7 +1028,8 @@ function setupPortalRequestHistoryToggle() {
     content.style.display = isHidden ? "block" : "none";
     btn.setAttribute("aria-expanded", String(isHidden));
     if (isHidden) {
-      maybeRenderPortalRequestHistory();
+      const opId = (resolvePortalOperatorScopeId() || "").trim();
+      refreshPortalHistoryFromFirestore(opId);
     }
   });
 }
@@ -1582,13 +1827,28 @@ function resolveHistoryEntryByTsForPdf(opId, tsStr) {
   const tsNum = Number(String(tsStr || "").trim());
   if (!opId || !tsStr || Number.isNaN(tsNum)) return null;
   syncAdminRequestHistoryEstados(opId);
-  let history = getAdminRequestHistory(opId);
-  history.sort((a, b) => (b && b.ts ? b.ts : 0) - (a && a.ts ? a.ts : 0));
-  const idx = history.findIndex(function (e) {
+  let history = resolvePortalOperatorHistoryEntriesSorted(opId);
+  let idx = history.findIndex(function (e) {
     return e && Number(e.ts) === tsNum;
   });
-  if (idx < 0) return null;
-  return { history, entry: history[idx], idx };
+  if (idx >= 0) return { history, entry: history[idx], idx };
+
+  const allCache = window.__firestoreHistorialAll;
+  if (Array.isArray(allCache) && allCache.length) {
+    const subset = allCache
+      .filter(function (e) {
+        return String(e.operatorId || "") === String(opId);
+      })
+      .slice()
+      .sort(function (a, b) {
+        return (b && b.ts ? b.ts : 0) - (a && a.ts ? a.ts : 0);
+      });
+    idx = subset.findIndex(function (e) {
+      return e && Number(e.ts) === tsNum;
+    });
+    if (idx >= 0) return { history: subset, entry: subset[idx], idx };
+  }
+  return null;
 }
 
 /**
@@ -3424,6 +3684,18 @@ function renderHistorialEstadoPillHtml(estado) {
 
 /** Misma lógica que el mapa de `buildAdminRequestHistoryItemsHtml` (estado mostrado en historial). */
 function computeEstadoForHistoryEntry(opId, entry, idx, history) {
+  if (entry && entry.fromFirestore) {
+    const e = normalizeHistorialEstadoStored(entry.estadoHistorial);
+    if (
+      e === "aprobado" ||
+      e === "rechazado" ||
+      e === "pendiente" ||
+      e === "na"
+    ) {
+      return e;
+    }
+    return "pendiente";
+  }
   let estado = normalizeHistorialEstadoStored(entry && entry.estadoHistorial);
   const latestIdxInView = latestHistoryEntryIndex(history);
   if (isMaestroArchivadaMarker(entry)) {
@@ -3658,15 +3930,21 @@ function buildPortalHistorySummaryTextFromPayload(payload) {
   return "—";
 }
 
-/** Historial del operador para portal (tabla / bandas / futuros), ordenado por fecha descendente. */
-function resolvePortalOperatorHistoryEntriesSorted(opId) {
+/**
+ * Historial local + filas ya traídas de Firestore para este operador (sin ordenar).
+ */
+function resolveMergedOperatorHistoryEntries(opId) {
   if (!opId) return [];
   syncAdminRequestHistoryEstados(opId);
-  let history = getAdminRequestHistory(opId);
-  if (!history.length) {
+  let local = getAdminRequestHistory(opId);
+  const remote =
+    (window.__firestoreHistorialByOperator &&
+      window.__firestoreHistorialByOperator[String(opId)]) ||
+    [];
+  if (!local.length && !remote.length) {
     const lastPayload = getLastSavedPayloadFromOperator(opId);
     if (lastPayload) {
-      history = [
+      local = [
         {
           ts: Date.now(),
           tipo: "Solicitud",
@@ -3677,8 +3955,17 @@ function resolvePortalOperatorHistoryEntriesSorted(opId) {
       ];
     }
   }
-  history.sort((a, b) => (b && b.ts ? b.ts : 0) - (a && a.ts ? a.ts : 0));
-  return history;
+  return mergeHistoryEntriesPreferFirestore(local, remote);
+}
+
+/** Historial del operador para portal (tabla / bandas / futuros), ordenado por fecha descendente. */
+function resolvePortalOperatorHistoryEntriesSorted(opId) {
+  if (!opId) return [];
+  const merged = resolveMergedOperatorHistoryEntries(opId);
+  merged.sort(
+    (a, b) => (b && b.ts ? b.ts : 0) - (a && a.ts ? a.ts : 0)
+  );
+  return merged;
 }
 
 /**
@@ -5014,44 +5301,26 @@ function buildPortalRequestHistoryTableHtml(opId) {
 }
 
 /**
- * Misma marca HTML que el historial de solicitudes en admin.html (ítems + lista).
- * @param {{ onlyLatest?: boolean, omitPdfButton?: boolean }} [options] — onlyLatest: portal solo última fila; omitPdfButton: sin «Generar PDF» en pie (recuadro central #portalInlineLatestSolicitudWrap; el historial desplegable sigue con PDF).
+ * @param {Array} entries — filas de historial (local y/o Firestore).
+ * @param {{ defaultOpId?: string, omitPdfButton?: boolean, forceOperatorFooter?: boolean }} [options]
  */
-function buildAdminRequestHistoryItemsHtml(opId, options) {
+function buildAdminRequestHistoryItemsFromEntries(entries, options) {
   options = options || {};
-  const onlyLatest = !!options.onlyLatest;
   const omitPdfButton = !!options.omitPdfButton;
-  if (!opId) return "";
+  const forceOperatorFooter = !!options.forceOperatorFooter;
+  const defaultOpId =
+    options.defaultOpId != null ? String(options.defaultOpId) : "";
 
-  syncAdminRequestHistoryEstados(opId);
-  let history = getAdminRequestHistory(opId);
-  if (!history.length) {
-    const lastPayload = getLastSavedPayloadFromOperator(opId);
-    if (lastPayload) {
-      history = [
-        {
-          ts: Date.now(),
-          tipo: "Solicitud",
-          payload: lastPayload,
-          estadoHistorial:
-            computeHistorialEstadoForLatestEntry(opId) || "pendiente",
-        },
-      ];
-    }
-  }
+  if (!entries || !entries.length) return "";
 
-  history.sort((a, b) => (b && b.ts ? b.ts : 0) - (a && a.ts ? a.ts : 0));
-
-  if (!history.length) return "";
-
-  if (onlyLatest) {
-    history = [history[0]];
-  }
-
-  const opNombre = resolveHistoryFooterOperatorNombre(opId);
-
-  return history
-    .map((entry, idx) => {
+  return entries
+    .map(function (entry, idx) {
+      const rowOpId =
+        entry &&
+        entry.operatorId != null &&
+        String(entry.operatorId).trim() !== ""
+          ? String(entry.operatorId).trim()
+          : defaultOpId;
       const ts = entry && entry.ts ? new Date(entry.ts) : null;
       const tsText = ts ? ts.toLocaleString() : "";
       const tsIso = ts && !Number.isNaN(ts.getTime()) ? ts.toISOString() : "";
@@ -5062,8 +5331,27 @@ function buildAdminRequestHistoryItemsHtml(opId, options) {
           : tipoRaw || "Solicitud";
       const payload = entry && entry.payload ? entry.payload : {};
       const details = renderAdminRequestDetailsHtmlFromPayload(payload);
-      const estado = computeEstadoForHistoryEntry(opId, entry, idx, history);
+      const estado = computeEstadoForHistoryEntry(
+        rowOpId,
+        entry,
+        idx,
+        entries
+      );
       const statusPill = renderHistorialEstadoPillHtml(estado);
+      let opNombre = "";
+      if (
+        entry &&
+        entry.operatorName != null &&
+        String(entry.operatorName).trim() !== ""
+      ) {
+        opNombre = String(entry.operatorName).trim();
+      } else if (rowOpId) {
+        opNombre = resolveHistoryFooterOperatorNombre(rowOpId) || "";
+      }
+      if (forceOperatorFooter && !opNombre && rowOpId) {
+        opNombre = "Operador " + rowOpId;
+      }
+      const showFooter = forceOperatorFooter ? !!rowOpId : !!opNombre;
       return `
         <article class="admin-history-item" aria-label="${escapeHtml(tipo)}">
           <div class="admin-history-item-inner">
@@ -5078,11 +5366,11 @@ function buildAdminRequestHistoryItemsHtml(opId, options) {
               ${details}
             </div>
             ${
-              opNombre
-                ? `<div class="admin-history-item-footer"><span><strong>Operador:</strong> ${escapeHtml(opNombre)}</span>${
+              showFooter
+                ? `<div class="admin-history-item-footer"><span><strong>Operador:</strong> ${escapeHtml(opNombre || "—")}</span>${
                     omitPdfButton
                       ? ""
-                      : `<button type="button" class="admin-history-item-pdf-btn" data-history-op-id="${escapeHtml(String(opId))}" data-history-ts="${entry && entry.ts ? escapeHtml(String(entry.ts)) : ""}">Generar PDF</button>`
+                      : `<button type="button" class="admin-history-item-pdf-btn" data-history-op-id="${escapeHtml(String(rowOpId))}" data-history-ts="${entry && entry.ts ? escapeHtml(String(entry.ts)) : ""}">Generar PDF</button>`
                   }</div>`
                 : ""
             }
@@ -5091,6 +5379,34 @@ function buildAdminRequestHistoryItemsHtml(opId, options) {
       `;
     })
     .join("");
+}
+
+/**
+ * Misma marca HTML que el historial de solicitudes en admin.html (ítems + lista).
+ * @param {{ onlyLatest?: boolean, omitPdfButton?: boolean }} [options] — onlyLatest: portal solo última fila; omitPdfButton: sin «Generar PDF» en pie (recuadro central #portalInlineLatestSolicitudWrap; el historial desplegable sigue con PDF).
+ */
+function buildAdminRequestHistoryItemsHtml(opId, options) {
+  options = options || {};
+  const onlyLatest = !!options.onlyLatest;
+  const omitPdfButton = !!options.omitPdfButton;
+  if (!opId) return "";
+
+  let history = resolveMergedOperatorHistoryEntries(opId);
+  history.sort(
+    (a, b) => (b && b.ts ? b.ts : 0) - (a && a.ts ? a.ts : 0)
+  );
+
+  if (!history.length) return "";
+
+  if (onlyLatest) {
+    history = [history[0]];
+  }
+
+  return buildAdminRequestHistoryItemsFromEntries(history, {
+    defaultOpId: String(opId),
+    omitPdfButton: omitPdfButton,
+    forceOperatorFooter: false,
+  });
 }
 
 function renderAdminRequestHistory(opId) {
@@ -5115,6 +5431,10 @@ function maybeRenderAdminRequestHistory() {
   if (!content) return;
   const isVisible = content.style.display !== "none";
   if (!isVisible) return;
+  if (getAdminHistorialFirestoreMode() === "all") {
+    refreshAdminHistorialFromFirestoreAndRender();
+    return;
+  }
   const opId =
     state.filtered && state.filtered.length === 1 && state.filtered[0].id
       ? String(state.filtered[0].id)
@@ -5124,7 +5444,7 @@ function maybeRenderAdminRequestHistory() {
     if (list) list.innerHTML = "";
     return;
   }
-  renderAdminRequestHistory(opId);
+  refreshAdminHistorialFromFirestoreAndRender();
 }
 
 function setupAdminRequestHistoryToggle() {
@@ -6307,6 +6627,7 @@ function init() {
 
     setupAdminPermisoDecisionButtons();
     setupAdminRequestHistoryToggle();
+    setupAdminHistorialFirestoreScopeControls();
     setupAdminNotificationCenter();
     refreshAdminNotificationList();
   } else if (role === "local") {

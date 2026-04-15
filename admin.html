@@ -257,6 +257,32 @@
           class="admin-history-content admin-history-content--below-table"
           style="display: none;"
         >
+          <div
+            id="adminHistorialFsScopeWrap"
+            class="admin-historial-fs-scope-wrap"
+            style="margin:0 0 10px;font-size:13px;color:#333;display:flex;flex-wrap:wrap;gap:10px 16px;align-items:center;"
+          >
+            <span style="color:#555;">Origen listado:</span>
+            <label style="cursor:pointer;"
+              ><input
+                type="radio"
+                name="adminHistorialFsScope"
+                value="operator"
+                checked
+                style="vertical-align:middle;margin-right:6px;"
+              />
+              Solo operador actual</label
+            >
+            <label style="cursor:pointer;"
+              ><input
+                type="radio"
+                name="adminHistorialFsScope"
+                value="all"
+                style="vertical-align:middle;margin-right:6px;"
+              />
+              Todos (Firestore)</label
+            >
+          </div>
           <div id="adminHistoryList" class="admin-history-list"></div>
         </div>
       </div>
