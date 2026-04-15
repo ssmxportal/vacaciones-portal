@@ -3551,6 +3551,28 @@ function latestHistoryEntryIndex(history) {
   return bestI;
 }
 
+/** Índice de la fila más reciente solo entre entradas de un mismo operador (admin «todos»). */
+function latestHistoryEntryIndexForOperator(history, operatorId) {
+  const id = String(operatorId || "").trim();
+  let bestI = -1;
+  let bestTs = -Infinity;
+  for (let i = 0; i < history.length; i++) {
+    const e = history[i];
+    const oid =
+      e && e.operatorId != null && String(e.operatorId).trim() !== ""
+        ? String(e.operatorId).trim()
+        : "";
+    if (oid !== id) continue;
+    const t = e && e.ts ? e.ts : 0;
+    if (t > bestTs || (t === bestTs && i > bestI)) {
+      bestTs = t;
+      bestI = i;
+    }
+  }
+  if (bestI < 0) return latestHistoryEntryIndex(history);
+  return bestI;
+}
+
 /**
  * Estatus de la solicitud más reciente según permiso en localStorage.
  * Si no hay `vacaciones_permiso_status_*` persistido, devuelve null (el historial no debe
@@ -3590,37 +3612,39 @@ function isMaestroArchivadaMarker(entry) {
 }
 
 /**
- * Persiste estadoHistorial: la más reciente = aprobado | rechazado | pendiente según permiso.
- * Entradas anteriores: si ya quedaron aprobadas/rechazadas, conservar ese valor (no forzar N/A);
- * el resto sigue como na (versiones viejas de una solicitud en trámite).
+ * Si la fila visible viene de Firestore sin marcador, pero el último registro local
+ * del operador sí tiene archivo por maestro, el estado mostrado debe ser Archivada.
  */
-function syncAdminRequestHistoryEstados(opId) {
-  if (!opId || String(opId) === "global") return;
-  const history = getAdminRequestHistory(opId);
-  if (!history.length) return;
+function entryOrLocalLatestHasMaestroArchivada(opId, entry) {
+  if (entry && isMaestroArchivadaMarker(entry)) return true;
+  const id = String(opId || "").trim();
+  if (!id || id === "global") return false;
+  const h = getAdminRequestHistory(id);
+  if (!h.length) return false;
+  const li = latestHistoryEntryIndex(h);
+  return isMaestroArchivadaMarker(h[li]);
+}
 
-  const latestIdx = latestHistoryEntryIndex(history);
-  const latestEntry = history[latestIdx];
+/**
+ * Estado de la solicitud más reciente (misma regla que syncAdminRequestHistoryEstados
+ * para la última fila): permiso en localStorage, borrador guardado, reset maestro, etc.
+ * Sirve para historial mezclado con Firestore sin confiar en status remoto desactualizado.
+ */
+function resolveLatestHistorialEstadoForDisplay(opId, latestEntry) {
   const leNorm = normalizeHistorialEstadoStored(
     latestEntry && latestEntry.estadoHistorial
   );
 
   let latestEstado;
-  // Marcador explícito de archive por maestroop: ningún recálculo debe volver a «Pendiente».
-  if (isMaestroArchivadaMarker(latestEntry)) {
+  if (entryOrLocalLatestHasMaestroArchivada(opId, latestEntry)) {
     latestEstado = "na";
   } else {
     latestEstado = computeHistorialEstadoForLatestEntry(opId);
-    // Reset maestro / archivo: la última fila como «Archivada» (na) no debe volver a «Pendiente»
-    // solo porque el permiso en localStorage sigue en trámite o falta clave.
     if (leNorm === "na") {
       if (latestEstado !== "aprobado" && latestEstado !== "rechazado") {
         latestEstado = "na";
       }
     } else if (latestEstado === null) {
-      // Sin clave de permiso: no hay flujo activo en localStorage. Si además no hay
-      // borrador guardado, «pendiente» en el historial es estado huérfano (p. ej. tras
-      // reset maestro) → Archivada (na), no volver a mostrar Pendiente.
       const hasSaved = operatorHasValidSavedRequestInStorage(opId);
       if (
         !hasSaved &&
@@ -3647,6 +3671,31 @@ function syncAdminRequestHistoryEstados(opId) {
       latestEstado = leNorm;
     }
   }
+
+  if (
+    latestEstado === "aprobado" ||
+    latestEstado === "rechazado" ||
+    latestEstado === "pendiente" ||
+    latestEstado === "na"
+  ) {
+    return latestEstado;
+  }
+  return "pendiente";
+}
+
+/**
+ * Persiste estadoHistorial: la más reciente = aprobado | rechazado | pendiente según permiso.
+ * Entradas anteriores: si ya quedaron aprobadas/rechazadas, conservar ese valor (no forzar N/A);
+ * el resto sigue como na (versiones viejas de una solicitud en trámite).
+ */
+function syncAdminRequestHistoryEstados(opId) {
+  if (!opId || String(opId) === "global") return;
+  const history = getAdminRequestHistory(opId);
+  if (!history.length) return;
+
+  const latestIdx = latestHistoryEntryIndex(history);
+  const latestEntry = history[latestIdx];
+  const latestEstado = resolveLatestHistorialEstadoForDisplay(opId, latestEntry);
 
   const updated = history.map((entry, idx) => {
     if (idx === latestIdx) {
@@ -3718,43 +3767,39 @@ function renderHistorialEstadoPillHtml(estado) {
   return '<span class="admin-history-item-na">Archivada</span>';
 }
 
-/** Misma lógica que el mapa de `buildAdminRequestHistoryItemsHtml` (estado mostrado en historial). */
-function computeEstadoForHistoryEntry(opId, entry, idx, history) {
-  if (entry && entry.fromFirestore) {
+/**
+ * Estado de píldora en historial (portal/admin/PDF). Filas que no son la más reciente
+ * quedan Archivadas salvo que ya fueran aprobadas/rechazadas; la más reciente usa la
+ * misma lógica que sync (permiso, borrador, maestro), también para filas solo en Firestore.
+ * @param {{ historialMultiOp?: boolean }} [options] — listado admin mezclando varios operadores.
+ */
+function computeEstadoForHistoryEntry(opId, entry, idx, history, options) {
+  options = options || {};
+  if (!entry) return "na";
+
+  let latestIdxInView;
+  if (options.historialMultiOp) {
+    const oid =
+      entry.operatorId != null && String(entry.operatorId).trim() !== ""
+        ? String(entry.operatorId).trim()
+        : String(opId || "").trim();
+    latestIdxInView = latestHistoryEntryIndexForOperator(history, oid);
+  } else {
+    latestIdxInView = latestHistoryEntryIndex(history);
+  }
+
+  if (idx !== latestIdxInView) {
+    if (isMaestroArchivadaMarker(entry)) return "na";
     const e = normalizeHistorialEstadoStored(entry.estadoHistorial);
-    if (
-      e === "aprobado" ||
-      e === "rechazado" ||
-      e === "pendiente" ||
-      e === "na"
-    ) {
-      return e;
-    }
-    return "pendiente";
+    if (e === "aprobado" || e === "rechazado") return e;
+    return "na";
   }
-  let estado = normalizeHistorialEstadoStored(entry && entry.estadoHistorial);
-  const latestIdxInView = latestHistoryEntryIndex(history);
-  if (isMaestroArchivadaMarker(entry)) {
-    estado = "na";
-  } else if (
-    idx === latestIdxInView &&
-    estado === "pendiente" &&
-    computeHistorialEstadoForLatestEntry(opId) === null &&
-    !operatorHasValidSavedRequestInStorage(opId)
-  ) {
-    estado = "na";
-  } else if (
-    estado !== "aprobado" &&
-    estado !== "rechazado" &&
-    estado !== "pendiente" &&
-    estado !== "na"
-  ) {
-    estado =
-      idx === latestIdxInView
-        ? computeHistorialEstadoForLatestEntry(opId) || "pendiente"
-        : "na";
-  }
-  return estado;
+
+  const permisoOpId =
+    entry.operatorId != null && String(entry.operatorId).trim() !== ""
+      ? String(entry.operatorId).trim()
+      : String(opId || "").trim();
+  return resolveLatestHistorialEstadoForDisplay(permisoOpId, entry);
 }
 
 function estadoPdfLabel(estado) {
@@ -5346,6 +5391,7 @@ function buildAdminRequestHistoryItemsFromEntries(entries, options) {
   const forceOperatorFooter = !!options.forceOperatorFooter;
   const defaultOpId =
     options.defaultOpId != null ? String(options.defaultOpId) : "";
+  const historialMultiOp = !!forceOperatorFooter;
 
   if (!entries || !entries.length) return "";
 
@@ -5371,7 +5417,8 @@ function buildAdminRequestHistoryItemsFromEntries(entries, options) {
         rowOpId,
         entry,
         idx,
-        entries
+        entries,
+        historialMultiOp ? { historialMultiOp: true } : null
       );
       const statusPill = renderHistorialEstadoPillHtml(estado);
       let opNombre = "";
