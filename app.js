@@ -164,8 +164,54 @@ function firestoreDocToHistoryEntry(docSnap) {
 
 /**
  * Combina historial local y copias en Firestore; si hay duplicado cercano en tiempo y mismo
- * motivo, se conserva la fila de Firestore.
+ * motivo, se conserva la fila con estado más sólido (evita que Firestore pendiente pise
+ * un aprobado/rechazado/archivada ya persistido en local).
  */
+function historialEstadoMergeWeight(val) {
+  const n = normalizeHistorialEstadoStored(val);
+  if (n === "aprobado" || n === "rechazado") return 3;
+  if (n === "na") return 2;
+  if (n === "pendiente") return 1;
+  return 0;
+}
+
+function mergeDuplicateHistoryEntries(existing, incoming) {
+  const we = historialEstadoMergeWeight(existing && existing.estadoHistorial);
+  const wi = historialEstadoMergeWeight(incoming && incoming.estadoHistorial);
+  const winner = wi > we ? incoming : existing;
+  const loser = wi > we ? existing : incoming;
+  const merged = Object.assign({}, winner);
+  if (
+    (!merged.operatorName || String(merged.operatorName).trim() === "") &&
+    loser &&
+    loser.operatorName
+  ) {
+    merged.operatorName = loser.operatorName;
+  }
+  if (
+    (!merged.operatorId || String(merged.operatorId).trim() === "") &&
+    loser &&
+    loser.operatorId
+  ) {
+    merged.operatorId = loser.operatorId;
+  }
+  const mergedEstado = normalizeHistorialEstadoStored(merged.estadoHistorial);
+  if (
+    mergedEstado === "na" &&
+    !isMaestroArchivadaMarker(merged) &&
+    loser &&
+    isMaestroArchivadaMarker(loser)
+  ) {
+    merged.maestroResetArchivada = true;
+  } else if (
+    (mergedEstado === "aprobado" || mergedEstado === "rechazado") &&
+    isMaestroArchivadaMarker(merged)
+  ) {
+    delete merged.maestroResetArchivada;
+  }
+  return merged;
+}
+
 function mergeHistoryEntriesPreferFirestore(localArr, remoteArr) {
   const merged = [];
   const all = []
@@ -202,7 +248,15 @@ function mergeHistoryEntriesPreferFirestore(localArr, remoteArr) {
       }
     }
     if (dupIdx >= 0) {
-      if (src === "fs") merged[dupIdx] = { entry: e, src: src };
+      const current = merged[dupIdx];
+      merged[dupIdx] = {
+        entry: mergeDuplicateHistoryEntries(current.entry, e),
+        src:
+          src === "fs" ||
+          (current && current.src !== "fs" && src === "fs")
+            ? "fs"
+            : current.src,
+      };
       continue;
     }
     merged.push({ entry: e, src: src });
@@ -1751,7 +1805,14 @@ function resetPortalOperatorForNewSolicitud(operatorId) {
         const latestIdx = latestHistoryEntryIndex(history);
         history = history.map((entry, idx) => {
           if (idx === latestIdx) {
-            return { ...entry, estadoHistorial: v };
+            const next = { ...entry, estadoHistorial: v };
+            if (
+              (v === "aprobado" || v === "rechazado") &&
+              isMaestroArchivadaMarker(next)
+            ) {
+              delete next.maestroResetArchivada;
+            }
+            return next;
           }
           const prev = entry && entry.estadoHistorial;
           if (prev === "aprobado" || prev === "rechazado" || prev === "na") {
