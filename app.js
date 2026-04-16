@@ -3742,11 +3742,48 @@ function entryOrLocalLatestHasMaestroArchivada(opId, entry) {
 }
 
 /**
+ * Cuando no hay contexto local (cookies/datos borrados), no debemos recalcular estados
+ * a Archivada para filas que vienen de Firestore: se respeta lo que trae la nube.
+ */
+function hasLocalHistorialStateForOperator(opId) {
+  const id = String(opId || "").trim();
+  if (!id || id === "global") return false;
+  try {
+    if (getAdminRequestHistory(id).length) return true;
+  } catch (e) {
+    /* ignore */
+  }
+  const permisoRaw = window.localStorage.getItem(permisoStatusStorageKey(id));
+  if (permisoRaw != null && String(permisoRaw).trim() !== "") return true;
+  if (operatorHasValidSavedRequestInStorage(id)) return true;
+  return false;
+}
+
+/**
  * Estado de la solicitud más reciente (misma regla que syncAdminRequestHistoryEstados
  * para la última fila): permiso en localStorage, borrador guardado, reset maestro, etc.
  * Sirve para historial mezclado con Firestore sin confiar en status remoto desactualizado.
  */
 function resolveLatestHistorialEstadoForDisplay(opId, latestEntry) {
+  if (
+    latestEntry &&
+    latestEntry.fromFirestore &&
+    !hasLocalHistorialStateForOperator(opId)
+  ) {
+    const remoteNorm = normalizeHistorialEstadoStored(
+      latestEntry.estadoHistorial
+    );
+    if (
+      remoteNorm === "aprobado" ||
+      remoteNorm === "rechazado" ||
+      remoteNorm === "pendiente" ||
+      remoteNorm === "na"
+    ) {
+      return remoteNorm;
+    }
+    return "pendiente";
+  }
+
   const leNorm = normalizeHistorialEstadoStored(
     latestEntry && latestEntry.estadoHistorial
   );
@@ -3892,6 +3929,8 @@ function renderHistorialEstadoPillHtml(estado) {
 function computeEstadoForHistoryEntry(opId, entry, idx, history, options) {
   options = options || {};
   if (!entry) return "na";
+  const noLocalState =
+    entry.fromFirestore && !hasLocalHistorialStateForOperator(opId);
 
   let latestIdxInView;
   if (options.historialMultiOp) {
@@ -3905,6 +3944,18 @@ function computeEstadoForHistoryEntry(opId, entry, idx, history, options) {
   }
 
   if (idx !== latestIdxInView) {
+    if (noLocalState) {
+      const remoteNorm = normalizeHistorialEstadoStored(entry.estadoHistorial);
+      if (
+        remoteNorm === "aprobado" ||
+        remoteNorm === "rechazado" ||
+        remoteNorm === "pendiente" ||
+        remoteNorm === "na"
+      ) {
+        return remoteNorm;
+      }
+      return "pendiente";
+    }
     if (isMaestroArchivadaMarker(entry)) return "na";
     const e = normalizeHistorialEstadoStored(entry.estadoHistorial);
     if (e === "aprobado" || e === "rechazado") return e;
