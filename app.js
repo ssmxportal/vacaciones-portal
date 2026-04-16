@@ -530,9 +530,8 @@ function syncVacationDaysConsumedToFirestore(opId, consumedDays) {
 
 /**
  * Alinea el consumo local con `operatorVacationSaldo` en Firestore.
- * - Si el documento no existe pero hay consumo en local: se sube a Firestore (no se resetea a 20).
- *   Así borrar solo `solicitudes` no hace que los días “vuelvan” al tope.
- * - Si el documento existe: manda el valor remoto (p. ej. consumo 0 tras «Restablecer días» en maestroop).
+ * Si el documento no existe (p. ej. borrado manual en consola), se limpia el consumo local → 20 días base.
+ * Si existe, el valor remoto manda.
  */
 function reconcileVacationDaysConsumedWithFirestore(opId) {
   const id = String(opId || "").trim();
@@ -547,12 +546,21 @@ function reconcileVacationDaysConsumedWithFirestore(opId) {
       const prev = getVacationDaysConsumed(id);
 
       if (!snap || !snap.exists) {
-        if (prev > 0) {
-          return syncVacationDaysConsumedToFirestore(id, prev).then(function () {
-            return false;
-          });
+        if (prev === 0) return false;
+        try {
+          window.localStorage.removeItem(key);
+        } catch (e) {
+          /* ignore */
         }
-        return false;
+        try {
+          window.localStorage.setItem(
+            vacationSaldoNudgeStorageKey(id),
+            String(Date.now())
+          );
+        } catch (e) {
+          /* ignore */
+        }
+        return true;
       }
 
       const data = snap.data() || {};
