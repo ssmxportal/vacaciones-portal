@@ -267,6 +267,106 @@ function syncOperatorLatestSolicitudFirestoreStatus(opId, desiredStatus) {
   return pickLatestFirestoreSolicitudDocSnapForOperator(id).then(applyDoc);
 }
 
+window.__solicitudFsStatusBackfillCache =
+  window.__solicitudFsStatusBackfillCache || Object.create(null);
+
+function mapHistorialEstadoToFirestoreStatusField(estadoHistorial) {
+  const n = normalizeHistorialEstadoStored(estadoHistorial);
+  if (n === "aprobado") return "aprobado";
+  if (n === "rechazado") return "rechazado";
+  if (n === "na") return "archivada";
+  return "";
+}
+
+/**
+ * Historial local antiguo sin `firestoreFolio`: empareja con la fila remota (mismo motivo y
+ * marca de tiempo cercana) para poder persistir el estado en el documento correcto.
+ */
+function attachFirestoreFolioFromRemoteForEntry(entry, remoteArr) {
+  if (
+    !entry ||
+    (entry.firestoreFolio && String(entry.firestoreFolio).trim() !== "")
+  ) {
+    return entry;
+  }
+  if (!remoteArr || !remoteArr.length) return entry;
+  const motive =
+    entry.payload && entry.payload.motive != null
+      ? String(entry.payload.motive)
+      : "";
+  const t2 = entry && entry.ts ? entry.ts : 0;
+  let bestFolio = "";
+  let bestDt = Infinity;
+  for (let i = 0; i < remoteArr.length; i++) {
+    const r = remoteArr[i];
+    const rm =
+      r && r.payload && r.payload.motive != null
+        ? String(r.payload.motive)
+        : "";
+    if (rm !== motive) continue;
+    const t1 = r && r.ts ? r.ts : 0;
+    const dt = Math.abs(t1 - t2);
+    if (dt < 20000 && dt < bestDt) {
+      const f =
+        r && r.firestoreFolio ? String(r.firestoreFolio).trim() : "";
+      if (f) {
+        bestDt = dt;
+        bestFolio = f;
+      }
+    }
+  }
+  if (!bestFolio) return entry;
+  return Object.assign({}, entry, { firestoreFolio: bestFolio });
+}
+
+/**
+ * Si la fila ya muestra aprobado/rechazado/archivada pero Firestore sigue en pendiente,
+ * reescribe `status` en el doc (migración suave en una visita con datos locales).
+ */
+function backfillSolicitudFirestoreStatusIfNeeded(entry) {
+  const folio =
+    entry && entry.firestoreFolio
+      ? String(entry.firestoreFolio).trim()
+      : "";
+  if (!folio || !db) return;
+  const fsStatus = mapHistorialEstadoToFirestoreStatusField(
+    entry.estadoHistorial
+  );
+  if (!fsStatus) return;
+  const cache = window.__solicitudFsStatusBackfillCache;
+  if (cache[folio] === fsStatus) return;
+  cache[folio] = fsStatus;
+  db.collection("solicitudes")
+    .doc(folio)
+    .set(
+      {
+        status: fsStatus,
+        statusUpdatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+      },
+      { merge: true }
+    )
+    .then(function () {
+      try {
+        const oid =
+          entry &&
+          entry.operatorId != null &&
+          String(entry.operatorId).trim() !== ""
+            ? String(entry.operatorId).trim()
+            : "";
+        if (oid && window.__firestoreHistorialByOperator) {
+          delete window.__firestoreHistorialByOperator[oid];
+        }
+        window.__firestoreHistorialAll = null;
+      } catch (e) {
+        /* ignore */
+      }
+    })
+    .catch(function (err) {
+      console.warn("[Firestore] backfill status solicitud:", err);
+      delete window.__solicitudFsStatusBackfillCache[folio];
+    });
+}
+
 /**
  * Combina historial local y copias en Firestore; si hay duplicado cercano en tiempo y mismo
  * motivo, se conserva la fila con estado más sólido (evita que Firestore pendiente pise
@@ -4442,7 +4542,14 @@ function resolveMergedOperatorHistoryEntries(opId) {
       ];
     }
   }
-  return mergeHistoryEntriesPreferFirestore(local, remote);
+  if (local.length && remote.length) {
+    local = local.map(function (e) {
+      return attachFirestoreFolioFromRemoteForEntry(e, remote);
+    });
+  }
+  const merged = mergeHistoryEntriesPreferFirestore(local, remote);
+  merged.forEach(backfillSolicitudFirestoreStatusIfNeeded);
+  return merged;
 }
 
 /** Historial del operador para portal (tabla / bandas / futuros), ordenado por fecha descendente. */
