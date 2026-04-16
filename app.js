@@ -365,7 +365,8 @@ function refreshAdminHistorialFromFirestoreAndRender() {
 }
 
 /**
- * maestroop/admin util: borra en Firestore todas las solicitudes de un operador.
+ * maestroop/admin util: borra en Firestore solo la colección `solicitudes` del operador.
+ * No toca `operatorVacationSaldo` (saldo de días consumidos); son datos independientes.
  * @returns {Promise<{deletedCount: number, skipped: boolean}>}
  */
 function deleteSolicitudesFromFirestoreByOperator(opId) {
@@ -492,6 +493,115 @@ function vacationDaysConsumedStorageKey(opId) {
   return "vacaciones_operador_vacaciones_consumidas_" + String(opId).trim();
 }
 
+function vacationSaldoFirestoreDoc(opId) {
+  if (!db) return null;
+  const id = String(opId || "").trim();
+  if (!id) return null;
+  return db.collection("operatorVacationSaldo").doc(id);
+}
+
+/** Reescribe en Firestore el consumo local actual (no borra solicitudes). */
+function syncVacationSaldoFromLocalToFirestore(opId) {
+  return syncVacationDaysConsumedToFirestore(opId, getVacationDaysConsumed(opId));
+}
+
+function syncVacationDaysConsumedToFirestore(opId, consumedDays) {
+  const ref = vacationSaldoFirestoreDoc(opId);
+  if (!ref) return Promise.resolve(false);
+  const n = parseInt(String(consumedDays || "0"), 10);
+  const safe = Number.isFinite(n) && n > 0 ? n : 0;
+  return ref
+    .set(
+      {
+        operatorId: String(opId).trim(),
+        consumedDays: safe,
+        updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+      },
+      { merge: true }
+    )
+    .then(function () {
+      return true;
+    })
+    .catch(function (err) {
+      console.warn("[Firestore] no se pudo sincronizar saldo vacaciones:", err);
+      return false;
+    });
+}
+
+/**
+ * Alinea el consumo local con `operatorVacationSaldo` en Firestore.
+ * - Si el documento no existe pero hay consumo en local: se sube a Firestore (no se resetea a 20).
+ *   Así borrar solo `solicitudes` no hace que los días “vuelvan” al tope.
+ * - Si el documento existe: manda el valor remoto (p. ej. consumo 0 tras «Restablecer días» en maestroop).
+ */
+function reconcileVacationDaysConsumedWithFirestore(opId) {
+  const id = String(opId || "").trim();
+  if (!id || !db) return Promise.resolve(false);
+  const key = vacationDaysConsumedStorageKey(id);
+  const ref = vacationSaldoFirestoreDoc(id);
+  if (!ref) return Promise.resolve(false);
+
+  return ref
+    .get()
+    .then(function (snap) {
+      const prev = getVacationDaysConsumed(id);
+
+      if (!snap || !snap.exists) {
+        if (prev > 0) {
+          return syncVacationDaysConsumedToFirestore(id, prev).then(function () {
+            return false;
+          });
+        }
+        return false;
+      }
+
+      const data = snap.data() || {};
+      const n = parseInt(
+        String(data.consumedDays != null ? data.consumedDays : "0"),
+        10
+      );
+      const remote = Number.isFinite(n) && n > 0 ? n : 0;
+
+      if (remote === prev) return false;
+
+      if (remote === 0) {
+        try {
+          window.localStorage.removeItem(key);
+        } catch (e) {
+          /* ignore */
+        }
+      } else {
+        try {
+          window.localStorage.setItem(key, String(remote));
+        } catch (e) {
+          /* ignore */
+        }
+      }
+      try {
+        window.localStorage.setItem(
+          vacationSaldoNudgeStorageKey(id),
+          String(Date.now())
+        );
+      } catch (e) {
+        /* ignore */
+      }
+      return true;
+    })
+    .catch(function (err) {
+      console.warn("[Firestore] reconciliar saldo vacaciones:", err);
+      return false;
+    });
+}
+
+function runPortalVacationSaldoFirestoreReconcile(oid) {
+  const id = String(oid || "").trim();
+  if (!id) return Promise.resolve(false);
+  return reconcileVacationDaysConsumedWithFirestore(id).then(function (changed) {
+    if (changed) portalRefreshLocalVacationSaldoUIForOperator(id);
+    return changed;
+  });
+}
+
 /** Cambia en cada reset de saldo para disparar `storage` / sondeo aunque el consumo ya fuera 0. */
 function vacationSaldoNudgeStorageKey(opId) {
   if (!opId) return "";
@@ -525,6 +635,7 @@ function clearVacationDaysConsumedStorageForOperator(opId) {
   } catch (e) {
     /* ignore */
   }
+  syncVacationDaysConsumedToFirestore(id, 0);
   broadcastVacationSaldoReset(id);
 }
 
@@ -1834,7 +1945,9 @@ function recordVacationDaysConsumedIfApprovedVacacionesClose(operatorIdStr) {
     const key = vacationDaysConsumedStorageKey(operatorIdStr);
     const prev = parseInt(window.localStorage.getItem(key) || "0", 10);
     const safePrev = Number.isFinite(prev) && prev > 0 ? prev : 0;
-    window.localStorage.setItem(key, String(safePrev + taken));
+    const next = safePrev + taken;
+    window.localStorage.setItem(key, String(next));
+    syncVacationDaysConsumedToFirestore(operatorIdStr, next);
   } catch (e) {
     /* ignore */
   }
@@ -6881,6 +6994,13 @@ function init() {
     setupAdminNotificationCenter();
     refreshAdminNotificationList();
   } else if (role === "local") {
+    const localOperatorId = (
+      window.sessionStorage.getItem("vacaciones_operator_id") || ""
+    ).trim();
+    if (localOperatorId) {
+      runPortalVacationSaldoFirestoreReconcile(localOperatorId);
+    }
+
     // Enlazar primero sync entre pestañas / sondeo: si más abajo falla JSON.parse u otro paso,
     // el portal seguirá actualizando días disponibles tras reset en maestroop/admin.
     if (!window.__portalPermisoStatusBound) {
@@ -6959,6 +7079,7 @@ function init() {
         const oid = window.sessionStorage.getItem("vacaciones_operator_id");
         if (oid) {
           refreshPortalPermisoStatusUI(oid);
+          runPortalVacationSaldoFirestoreReconcile(oid);
           portalPollLocalVacationSaldoIfChanged();
         }
       });
@@ -6966,6 +7087,7 @@ function init() {
         const oid = window.sessionStorage.getItem("vacaciones_operator_id");
         if (oid) {
           refreshPortalPermisoStatusUI(oid);
+          runPortalVacationSaldoFirestoreReconcile(oid);
           portalPollLocalVacationSaldoIfChanged();
         }
       });
@@ -6977,6 +7099,7 @@ function init() {
           if (ev.persisted) {
             __portalSaldoPollLastSaldo = undefined;
           }
+          runPortalVacationSaldoFirestoreReconcile(oid);
           portalPollLocalVacationSaldoIfChanged();
         }
       });
@@ -6992,6 +7115,12 @@ function init() {
         }
         portalPollLocalVacationSaldoIfChanged();
       }, pollMs);
+
+      window.__portalSaldoFsReconcileTimer = window.setInterval(function () {
+        if (document.hidden) return;
+        const oid = window.sessionStorage.getItem("vacaciones_operator_id");
+        if (oid) runPortalVacationSaldoFirestoreReconcile(oid);
+      }, 15000);
     }
 
     // USUARIO LOCAL: sólo puede ver su propia información; motivo como selector
@@ -8523,8 +8652,12 @@ function setupMaestroOp() {
             `Historial local de ${opId} borrado. Firestore no disponible en esta sesion.`;
           return;
         }
-        statusEl.textContent =
-          `Historial de solicitudes de ${opId} borrado. Firestore eliminadas: ${deletedCount}.`;
+        return syncVacationSaldoFromLocalToFirestore(opId).then(function () {
+          const restante = getPortalVacationSaldoRestante(opId);
+          statusEl.textContent =
+            `Historial de solicitudes de ${opId} borrado (Firestore: ${deletedCount} docs). ` +
+            `Saldo de días no se reinicia: quedan ${restante} días disponibles (consumo guardado aparte en operatorVacationSaldo).`;
+        });
       })
       .catch(function (err) {
         console.warn("[Firestore] borrar historial por operador:", err);
