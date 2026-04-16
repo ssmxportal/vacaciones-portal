@@ -364,6 +364,61 @@ function refreshAdminHistorialFromFirestoreAndRender() {
     });
 }
 
+/**
+ * maestroop/admin util: borra en Firestore todas las solicitudes de un operador.
+ * @returns {Promise<{deletedCount: number, skipped: boolean}>}
+ */
+function deleteSolicitudesFromFirestoreByOperator(opId) {
+  const id = String(opId || "").trim();
+  if (!id || !db) {
+    return Promise.resolve({ deletedCount: 0, skipped: true });
+  }
+  return db
+    .collection("solicitudes")
+    .where("operatorId", "==", id)
+    .get()
+    .then(function (qs) {
+      if (!qs || !qs.docs || !qs.docs.length) {
+        return { deletedCount: 0, skipped: false };
+      }
+      const docs = qs.docs.slice();
+      let deletedCount = 0;
+      let chain = Promise.resolve();
+      while (docs.length) {
+        const chunk = docs.splice(0, 400);
+        chain = chain.then(function () {
+          const batch = db.batch();
+          chunk.forEach(function (docSnap) {
+            batch.delete(docSnap.ref);
+          });
+          return batch.commit().then(function () {
+            deletedCount += chunk.length;
+          });
+        });
+      }
+      return chain.then(function () {
+        try {
+          if (window.__firestoreHistorialByOperator) {
+            delete window.__firestoreHistorialByOperator[id];
+          }
+          if (Array.isArray(window.__firestoreHistorialAll)) {
+            window.__firestoreHistorialAll = window.__firestoreHistorialAll.filter(
+              function (entry) {
+                return (
+                  String(entry && entry.operatorId != null ? entry.operatorId : "") !==
+                  id
+                );
+              }
+            );
+          }
+        } catch (e) {
+          /* ignore */
+        }
+        return { deletedCount: deletedCount, skipped: false };
+      });
+    });
+}
+
 function renderAdminRequestHistoryUnified() {
   const list = document.getElementById("adminHistoryList");
   if (!list) return;
@@ -8404,10 +8459,27 @@ function setupMaestroOp() {
       statusEl.textContent = "Selecciona un operador primero.";
       return;
     }
-    window.localStorage.removeItem(
-      adminRequestHistoryStorageKey(String(selectedOperator.id))
-    );
-    statusEl.textContent = `Historial de solicitudes de ${selectedOperator.id} borrado.`;
+    const opId = String(selectedOperator.id).trim();
+    window.localStorage.removeItem(adminRequestHistoryStorageKey(opId));
+    statusEl.textContent =
+      `Historial local de ${opId} borrado. Eliminando en Firestore...`;
+    deleteSolicitudesFromFirestoreByOperator(opId)
+      .then(function (res) {
+        const deletedCount =
+          res && Number.isFinite(res.deletedCount) ? res.deletedCount : 0;
+        if (res && res.skipped) {
+          statusEl.textContent =
+            `Historial local de ${opId} borrado. Firestore no disponible en esta sesion.`;
+          return;
+        }
+        statusEl.textContent =
+          `Historial de solicitudes de ${opId} borrado. Firestore eliminadas: ${deletedCount}.`;
+      })
+      .catch(function (err) {
+        console.warn("[Firestore] borrar historial por operador:", err);
+        statusEl.textContent =
+          `Historial local de ${opId} borrado. No se pudo borrar Firestore (revisa reglas/permisos).`;
+      });
   });
 
   if (resetDiasDisponiblesBtn) {
