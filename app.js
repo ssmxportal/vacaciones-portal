@@ -162,6 +162,111 @@ function firestoreDocToHistoryEntry(docSnap) {
   };
 }
 
+function pickLatestFirestoreSolicitudDocSnapForOperator(opId) {
+  const id = String(opId || "").trim();
+  if (!id || !db) return Promise.resolve(null);
+  return db
+    .collection("solicitudes")
+    .where("operatorId", "==", id)
+    .get()
+    .then(function (qs) {
+      if (!qs || !qs.docs || !qs.docs.length) return null;
+      let best = null;
+      let bestTs = -Infinity;
+      for (let i = 0; i < qs.docs.length; i++) {
+        const d = qs.docs[i];
+        const e = firestoreDocToHistoryEntry(d);
+        const t = e && e.ts ? e.ts : 0;
+        if (t > bestTs) {
+          bestTs = t;
+          best = d;
+        }
+      }
+      return best;
+    });
+}
+
+function normalizeSolicitudFirestoreStatusForDoc(val) {
+  const raw = String(val || "").trim().toLowerCase();
+  if (raw === "aprobado" || raw === "autorizado") return "aprobado";
+  if (raw === "rechazado") return "rechazado";
+  if (raw === "na" || raw === "archivada" || raw === "n/a") return "archivada";
+  return "pendiente";
+}
+
+/**
+ * Actualiza el campo `status` del documento de solicitud más reciente del operador en Firestore.
+ * Así, si se borran cookies/datos locales, el historial reconstruido desde la nube conserva
+ * aprobado/rechazado/archivada en lugar de quedar todo en pendiente.
+ */
+function syncOperatorLatestSolicitudFirestoreStatus(opId, desiredStatus) {
+  const id = String(opId || "").trim();
+  if (!id || !db) return Promise.resolve(false);
+  const norm = normalizeSolicitudFirestoreStatusForDoc(desiredStatus);
+  let folioHint = "";
+  try {
+    const h = getAdminRequestHistory(id);
+    if (h.length) {
+      const li = latestHistoryEntryIndex(h);
+      const entry = h[li];
+      if (entry && entry.firestoreFolio) {
+        folioHint = String(entry.firestoreFolio).trim();
+      }
+    }
+  } catch (e) {
+    /* ignore */
+  }
+
+  function invalidateFsHistorialCaches() {
+    try {
+      if (
+        window.__firestoreHistorialByOperator &&
+        window.__firestoreHistorialByOperator[id]
+      ) {
+        delete window.__firestoreHistorialByOperator[id];
+      }
+      if (Array.isArray(window.__firestoreHistorialAll)) {
+        window.__firestoreHistorialAll = null;
+      }
+    } catch (e2) {
+      /* ignore */
+    }
+  }
+
+  function applyDoc(docSnap) {
+    if (!docSnap || !docSnap.ref) return Promise.resolve(false);
+    return docSnap.ref
+      .set(
+        {
+          status: norm,
+          statusUpdatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+        },
+        { merge: true }
+      )
+      .then(function () {
+        invalidateFsHistorialCaches();
+        return true;
+      })
+      .catch(function (err) {
+        console.warn("[Firestore] no se pudo actualizar status de solicitud:", err);
+        return false;
+      });
+  }
+
+  if (folioHint) {
+    return db
+      .collection("solicitudes")
+      .doc(folioHint)
+      .get()
+      .then(function (snap) {
+        if (snap && snap.exists) return applyDoc(snap);
+        return pickLatestFirestoreSolicitudDocSnapForOperator(id).then(applyDoc);
+      });
+  }
+
+  return pickLatestFirestoreSolicitudDocSnapForOperator(id).then(applyDoc);
+}
+
 /**
  * Combina historial local y copias en Firestore; si hay duplicado cercano en tiempo y mismo
  * motivo, se conserva la fila con estado más sólido (evita que Firestore pendiente pise
@@ -194,6 +299,14 @@ function mergeDuplicateHistoryEntries(existing, incoming) {
     loser.operatorId
   ) {
     merged.operatorId = loser.operatorId;
+  }
+  if (
+    (!merged.firestoreFolio || String(merged.firestoreFolio).trim() === "") &&
+    loser &&
+    loser.firestoreFolio &&
+    String(loser.firestoreFolio).trim() !== ""
+  ) {
+    merged.firestoreFolio = String(loser.firestoreFolio).trim();
   }
   const mergedEstado = normalizeHistorialEstadoStored(merged.estadoHistorial);
   if (
@@ -1306,6 +1419,10 @@ function setPermisoStatusField(operatorId, roleKey, value) {
   );
   broadcastPermisoStatusChanged(operatorId);
   syncAdminRequestHistoryEstados(String(operatorId));
+  const fin = normalizePermisoRowValue(s.estatusFinal);
+  if (fin === "aprobado" || fin === "rechazado") {
+    syncOperatorLatestSolicitudFirestoreStatus(String(operatorId), fin);
+  }
 }
 
 function clearPermisoStatusStorage(operatorId) {
@@ -2010,6 +2127,7 @@ function resetPortalOperatorForNewSolicitud(operatorId) {
           ]);
         }
       }
+      syncOperatorLatestSolicitudFirestoreStatus(operatorIdStr, v);
     }
   } catch (e) {
     /* ignore */
@@ -7840,10 +7958,11 @@ function init() {
       // Historial de solicitudes por operador (incluye modificaciones).
       if (operatorScopeId && operatorScopeId !== "global") {
         const tipo = "Solicitud";
+        const tsPush = Date.now();
         try {
           let history = getAdminRequestHistory(String(operatorScopeId));
           history.push({
-            ts: Date.now(),
+            ts: tsPush,
             tipo,
             payload: payloadToStore,
           });
@@ -7858,7 +7977,26 @@ function init() {
           String(operatorScopeId),
           payloadToStore,
           tipo
-        );
+        ).then(function (folio) {
+          if (!folio) return;
+          try {
+            const oid = String(operatorScopeId);
+            let h2 = getAdminRequestHistory(oid);
+            const ix = h2.findIndex(function (e) {
+              return e && Number(e.ts) === Number(tsPush);
+            });
+            if (ix < 0) return;
+            const cur = h2[ix];
+            if (cur && cur.firestoreFolio) return;
+            h2 = h2.slice();
+            h2[ix] = Object.assign({}, cur, {
+              firestoreFolio: String(folio),
+            });
+            setAdminRequestHistory(oid, h2);
+          } catch (e2) {
+            /* ignore */
+          }
+        });
       }
 
       clearPortalModificarCambiosActiveForAdminLock(operatorScopeId);
@@ -8426,6 +8564,7 @@ function archivePendienteSolicitudAsNaForMaestroReset(operatorId) {
     );
     setAdminRequestHistory(oid, history);
     syncAdminRequestHistoryEstados(oid);
+    syncOperatorLatestSolicitudFirestoreStatus(oid, "archivada");
     return true;
   }
 
@@ -8446,6 +8585,7 @@ function archivePendienteSolicitudAsNaForMaestroReset(operatorId) {
       },
     ]);
     syncAdminRequestHistoryEstados(oid);
+    syncOperatorLatestSolicitudFirestoreStatus(oid, "archivada");
     return true;
   }
 
@@ -8472,6 +8612,7 @@ function archivePendienteSolicitudAsNaForMaestroReset(operatorId) {
     );
     setAdminRequestHistory(oid, history);
     syncAdminRequestHistoryEstados(oid);
+    syncOperatorLatestSolicitudFirestoreStatus(oid, "archivada");
     return true;
   }
 
@@ -8485,6 +8626,7 @@ function archivePendienteSolicitudAsNaForMaestroReset(operatorId) {
   history = history.slice(-25);
   setAdminRequestHistory(oid, history);
   syncAdminRequestHistoryEstados(oid);
+  syncOperatorLatestSolicitudFirestoreStatus(oid, "archivada");
   return true;
 }
 
@@ -8510,6 +8652,7 @@ function finalizeMaestroResetHistory(operatorId) {
   );
   setAdminRequestHistory(oid, history);
   syncAdminRequestHistoryEstados(oid);
+  syncOperatorLatestSolicitudFirestoreStatus(oid, "archivada");
   return true;
 }
 
