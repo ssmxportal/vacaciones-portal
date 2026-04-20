@@ -823,6 +823,54 @@ function runPortalVacationSaldoFirestoreReconcile(oid) {
   });
 }
 
+/**
+ * Sincronización en vivo del saldo desde Firestore (sobrevive a borrar cookies/localStorage).
+ * onSnapshot entrega el estado inicial y cambios posteriores del documento.
+ */
+function startPortalVacationSaldoFirestoreLiveSync(opId) {
+  const id = String(opId || "").trim();
+  if (!id || !db) return;
+  if (window.__portalVacationSaldoLiveSyncOpId === id) return;
+  try {
+    if (typeof window.__portalVacationSaldoLiveSyncUnsub === "function") {
+      window.__portalVacationSaldoLiveSyncUnsub();
+    }
+  } catch (e) {
+    /* ignore */
+  }
+  window.__portalVacationSaldoLiveSyncOpId = id;
+  const ref = vacationSaldoFirestoreDoc(id);
+  if (!ref || typeof ref.onSnapshot !== "function") return;
+  window.__portalVacationSaldoLiveSyncUnsub = ref.onSnapshot(
+    function (snap) {
+      if (!snap || !snap.exists) return;
+      const data = snap.data() || {};
+      const n = parseInt(
+        String(data.consumedDays != null ? data.consumedDays : "0"),
+        10
+      );
+      const remote = Number.isFinite(n) && n > 0 ? n : 0;
+      const prev = getVacationDaysConsumed(id);
+      if (remote === prev) return;
+      const key = vacationDaysConsumedStorageKey(id);
+      if (remote === 0) {
+        window.localStorage.removeItem(key);
+      } else {
+        window.localStorage.setItem(key, String(remote));
+      }
+      try {
+        window.localStorage.setItem(vacationSaldoNudgeStorageKey(id), String(Date.now()));
+      } catch (e) {
+        /* ignore */
+      }
+      portalRefreshLocalVacationSaldoUIForOperator(id);
+    },
+    function (err) {
+      console.warn("[Firestore] live sync saldo vacaciones:", err);
+    }
+  );
+}
+
 /** Cambia en cada reset de saldo para disparar `storage` / sondeo aunque el consumo ya fuera 0. */
 function vacationSaldoNudgeStorageKey(opId) {
   if (!opId) return "";
@@ -7232,6 +7280,7 @@ function init() {
     ).trim();
     if (localOperatorId) {
       runPortalVacationSaldoFirestoreReconcile(localOperatorId);
+      startPortalVacationSaldoFirestoreLiveSync(localOperatorId);
     }
 
     // Enlazar primero sync entre pestañas / sondeo: si más abajo falla JSON.parse u otro paso,
@@ -7352,7 +7401,10 @@ function init() {
       window.__portalSaldoFsReconcileTimer = window.setInterval(function () {
         if (document.hidden) return;
         const oid = window.sessionStorage.getItem("vacaciones_operator_id");
-        if (oid) runPortalVacationSaldoFirestoreReconcile(oid);
+        if (oid) {
+          runPortalVacationSaldoFirestoreReconcile(oid);
+          startPortalVacationSaldoFirestoreLiveSync(oid);
+        }
       }, 15000);
     }
 
