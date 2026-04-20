@@ -1,0 +1,20 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Portal sin Firebase Auth: las reglas por defecto bloquean lectura/escritura.
+    // Despliega estas reglas en Firebase Console (o con CLI) para que el saldo
+    // y las solicitudes persistan. Ajusta a Auth + condiciones cuando exista login Firebase.
+
+    match /operatorVacationSaldo/{operatorId} {
+      allow read, write: if true;
+    }
+
+    match /solicitudes/{folio} {
+      allow read, write: if true;
+    }
+
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

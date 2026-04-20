@@ -713,6 +713,13 @@ function vacationSaldoFirestoreDoc(opId) {
   return db.collection("operatorVacationSaldo").doc(id);
 }
 
+function firebaseErrorBrief(err) {
+  if (!err) return "unknown";
+  const code = err.code != null ? String(err.code) : "";
+  const msg = err.message != null ? String(err.message) : String(err);
+  return code ? code + ": " + msg : msg;
+}
+
 /** Reescribe en Firestore el consumo local actual (no borra solicitudes). */
 function syncVacationSaldoFromLocalToFirestore(opId) {
   return syncVacationDaysConsumedToFirestore(opId, getVacationDaysConsumed(opId));
@@ -741,48 +748,103 @@ function syncVacationDaysConsumedToFirestore(opId, consumedDays) {
     });
 }
 
+function solicitudFirestoreIsApprovedStatus(statusRaw) {
+  const s = String(statusRaw != null ? statusRaw : "")
+    .trim()
+    .toLowerCase();
+  return s === "aprobado" || s === "autorizado";
+}
+
+function sumConsumedDaysFromSolicitudesQuerySnapshot(qs) {
+  if (!qs || qs.empty) return 0;
+  let total = 0;
+  qs.forEach(function (docSnap) {
+    const d = docSnap && typeof docSnap.data === "function" ? docSnap.data() : {};
+    const status = d && d.status != null ? d.status : "";
+    if (!solicitudFirestoreIsApprovedStatus(status)) return;
+    const motive = String(
+      d && d.motive != null
+        ? d.motive
+        : d && d.payload && d.payload.motive != null
+        ? d.payload.motive
+        : ""
+    ).trim();
+    if (!PORTAL_MOTIVOS_CONSUMEN_SALDO_VACACIONES.includes(motive)) return;
+    const values =
+      d && d.values && typeof d.values === "object"
+        ? d.values
+        : d && d.payload && d.payload.values && typeof d.payload.values === "object"
+        ? d.payload.values
+        : {};
+    total += getPortalDiasNoDiasFromPayloadValues(motive, values);
+  });
+  return total > 0 ? total : 0;
+}
+
 /**
  * Recupera consumo desde historial Firestore cuando falta operatorVacationSaldo.
- * Suma No. días de solicitudes aprobadas que consumen tope vacacional.
+ * Prueba operatorId como string y como número (datos antiguos).
  */
-function estimateVacationConsumedDaysFromSolicitudesFirestore(opId) {
-  const id = String(opId || "").trim();
-  if (!id || !db) return Promise.resolve(0);
+function estimateVacationConsumedFromSolicitudesFirestoreDetailed(opId) {
+  const idStr = String(opId || "").trim();
+  const idNum = parseInt(idStr, 10);
+  if (!idStr || !db) {
+    return Promise.resolve({ total: 0, error: null, docCount: 0, query: "skip" });
+  }
   return db
     .collection("solicitudes")
-    .where("operatorId", "==", id)
+    .where("operatorId", "==", idStr)
     .get()
     .then(function (qs) {
-      if (!qs || qs.empty) return 0;
-      let total = 0;
-      qs.forEach(function (docSnap) {
-        const d = docSnap && typeof docSnap.data === "function" ? docSnap.data() : {};
-        const status = String(d && d.status != null ? d.status : "")
-          .trim()
-          .toLowerCase();
-        if (status !== "aprobado") return;
-        const motive = String(
-          d && d.motive != null
-            ? d.motive
-            : d && d.payload && d.payload.motive != null
-            ? d.payload.motive
-            : ""
-        ).trim();
-        if (!PORTAL_MOTIVOS_CONSUMEN_SALDO_VACACIONES.includes(motive)) return;
-        const values =
-          d && d.values && typeof d.values === "object"
-            ? d.values
-            : d && d.payload && d.payload.values && typeof d.payload.values === "object"
-            ? d.payload.values
-            : {};
-        total += getPortalDiasNoDiasFromPayloadValues(motive, values);
-      });
-      return total > 0 ? total : 0;
+      if (qs && !qs.empty) {
+        const total = sumConsumedDaysFromSolicitudesQuerySnapshot(qs);
+        return {
+          total,
+          error: null,
+          docCount: qs.size,
+          query: "string",
+        };
+      }
+      if (Number.isFinite(idNum) && String(idNum) === idStr) {
+        return db
+          .collection("solicitudes")
+          .where("operatorId", "==", idNum)
+          .get()
+          .then(function (qs2) {
+            const total2 = sumConsumedDaysFromSolicitudesQuerySnapshot(qs2);
+            return {
+              total: total2,
+              error: null,
+              docCount: qs2 ? qs2.size : 0,
+              query: "number",
+            };
+          })
+          .catch(function (err) {
+            return {
+              total: 0,
+              error: firebaseErrorBrief(err),
+              docCount: 0,
+              query: "number_query_fail",
+            };
+          });
+      }
+      return { total: 0, error: null, docCount: 0, query: "string_empty" };
     })
     .catch(function (err) {
       console.warn("[Firestore] estimar consumo desde solicitudes:", err);
-      return 0;
+      return {
+        total: 0,
+        error: firebaseErrorBrief(err),
+        docCount: 0,
+        query: "error",
+      };
     });
+}
+
+function estimateVacationConsumedDaysFromSolicitudesFirestore(opId) {
+  return estimateVacationConsumedFromSolicitudesFirestoreDetailed(opId).then(function (r) {
+    return r && Number.isFinite(r.total) ? r.total : 0;
+  });
 }
 
 /**
@@ -982,22 +1044,23 @@ function renderPortalVacationSaldoDebugInfo(opId) {
           );
           return Number.isFinite(n) && n > 0 ? String(n) : "0";
         })
-        .catch(function () {
-          return "error";
+        .catch(function (err) {
+          return "READ_FAIL: " + firebaseErrorBrief(err);
         })
     : Promise.resolve("ref_null");
 
-  const reconstructedPromise = estimateVacationConsumedDaysFromSolicitudesFirestore(id)
-    .then(function (n) {
-      return Number.isFinite(n) && n > 0 ? String(n) : "0";
-    })
-    .catch(function () {
-      return "error";
-    });
+  const reconstructedPromise = estimateVacationConsumedFromSolicitudesFirestoreDetailed(id);
 
   return Promise.all([remotePromise, reconstructedPromise]).then(function (vals) {
     const remoteConsumed = vals[0];
-    const reconstructed = vals[1];
+    const rec = vals[1] || {};
+    const recTotal = Number.isFinite(rec.total) ? rec.total : 0;
+    const recPart =
+      "total=" +
+      String(recTotal) +
+      (rec.query ? " | query=" + String(rec.query) : "") +
+      (rec.docCount != null ? " | solicitudesMatched=" + String(rec.docCount) : "") +
+      (rec.error ? " | solicitudesErr=" + String(rec.error) : "");
     box.textContent =
       "DEBUG SALDO (temporal) | operador " +
       id +
@@ -1008,7 +1071,7 @@ function renderPortalVacationSaldoDebugInfo(opId) {
       " | operatorVacationSaldo.consumedDays=" +
       remoteConsumed +
       " | reconstructedFromSolicitudes=" +
-      reconstructed;
+      recPart;
   });
 }
 

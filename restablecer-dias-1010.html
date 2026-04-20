@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Restablecer días vacaciones — 1010</title>
+    <style>
+      body {
+        font-family: system-ui, sans-serif;
+        max-width: 520px;
+        margin: 2rem auto;
+        padding: 0 16px;
+        color: #111;
+      }
+    </style>
+  </head>
+  <body>
+    <p id="msg">Restableciendo saldo de vacaciones para el operador <strong>1010</strong>…</p>
+    <script>
+      (function () {
+        var key = "vacaciones_operador_vacaciones_consumidas_1010";
+        try {
+          localStorage.setItem(key, "0");
+          if (typeof BroadcastChannel !== "undefined") {
+            var bc = new BroadcastChannel("vacaciones_saldo_vacaciones_bc");
+            bc.postMessage({ operatorId: "1010" });
+          }
+          document.getElementById("msg").innerHTML =
+            "Listo: al operador <strong>1010</strong> se le volvió a asignar el tope de <strong>20</strong> días " +
+            "(consumo acumulado en cero). Recargue el portal del empleado o cambie de pestaña para ver el cambio.";
+        } catch (e) {
+          document.getElementById("msg").textContent =
+            "No se pudo escribir en el almacenamiento del navegador: " + (e && e.message ? e.message : e);
+        }
+      })();
+    </script>
+  </body>
+</html>
