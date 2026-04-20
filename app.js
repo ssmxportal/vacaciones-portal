@@ -884,6 +884,135 @@ function runPortalVacationSaldoFirestoreReconcile(oid) {
 }
 
 /**
+ * Pre-hidratación al iniciar sesión local:
+ * deja el consumo en localStorage antes de entrar a portal.html.
+ */
+function hydrateVacationConsumedFromFirestoreForLogin(opId) {
+  const id = String(opId || "").trim();
+  if (!id || !db) return Promise.resolve(false);
+  const key = vacationDaysConsumedStorageKey(id);
+  const ref = vacationSaldoFirestoreDoc(id);
+  if (!ref) return Promise.resolve(false);
+  return ref
+    .get()
+    .then(function (snap) {
+      if (snap && snap.exists) {
+        const d = snap.data() || {};
+        const n = parseInt(
+          String(d.consumedDays != null ? d.consumedDays : "0"),
+          10
+        );
+        const remote = Number.isFinite(n) && n > 0 ? n : 0;
+        if (remote > 0) {
+          window.localStorage.setItem(key, String(remote));
+        } else {
+          window.localStorage.removeItem(key);
+        }
+        return true;
+      }
+      return estimateVacationConsumedDaysFromSolicitudesFirestore(id).then(function (estimated) {
+        const recovered = Number.isFinite(estimated) && estimated > 0 ? estimated : 0;
+        if (recovered > 0) {
+          window.localStorage.setItem(key, String(recovered));
+          return syncVacationDaysConsumedToFirestore(id, recovered).then(function () {
+            return true;
+          });
+        }
+        window.localStorage.removeItem(key);
+        return false;
+      });
+    })
+    .catch(function (err) {
+      console.warn("[Firestore] hydrate saldo en login:", err);
+      return false;
+    });
+}
+
+/**
+ * Mensaje temporal de diagnóstico (portal local) para validar origen del saldo.
+ */
+function renderPortalVacationSaldoDebugInfo(opId) {
+  if (!isPortalHtmlPage()) return Promise.resolve();
+  const role = window.sessionStorage.getItem("vacaciones_role");
+  if (role !== "local") return Promise.resolve();
+  const id = String(opId || "").trim();
+  if (!id) return Promise.resolve();
+
+  const host =
+    document.getElementById("welcomeMessageCard") || document.getElementById("appRoot");
+  if (!host) return Promise.resolve();
+
+  let box = document.getElementById("portalVacationSaldoDebugBox");
+  if (!box) {
+    box = document.createElement("div");
+    box.id = "portalVacationSaldoDebugBox";
+    box.style.marginTop = "10px";
+    box.style.padding = "10px 12px";
+    box.style.border = "1px dashed #f59e0b";
+    box.style.borderRadius = "8px";
+    box.style.background = "#fffbeb";
+    box.style.color = "#111827";
+    box.style.fontSize = "0.86rem";
+    box.style.lineHeight = "1.45";
+    host.appendChild(box);
+  }
+
+  const firebaseStatus = String(window.__firebaseStatus || "unknown");
+  const localConsumed = getVacationDaysConsumed(id);
+  box.textContent =
+    "DEBUG SALDO (temporal) | operador " +
+    id +
+    " | firebaseStatus=" +
+    firebaseStatus +
+    " | localConsumed=" +
+    String(localConsumed) +
+    " | operatorVacationSaldo.consumedDays=consultando... | reconstructedFromSolicitudes=consultando...";
+
+  if (!db) return Promise.resolve();
+  const ref = vacationSaldoFirestoreDoc(id);
+  const remotePromise = ref
+    ? ref
+        .get()
+        .then(function (snap) {
+          if (!snap || !snap.exists) return "no_doc";
+          const d = snap.data() || {};
+          const n = parseInt(
+            String(d.consumedDays != null ? d.consumedDays : "0"),
+            10
+          );
+          return Number.isFinite(n) && n > 0 ? String(n) : "0";
+        })
+        .catch(function () {
+          return "error";
+        })
+    : Promise.resolve("ref_null");
+
+  const reconstructedPromise = estimateVacationConsumedDaysFromSolicitudesFirestore(id)
+    .then(function (n) {
+      return Number.isFinite(n) && n > 0 ? String(n) : "0";
+    })
+    .catch(function () {
+      return "error";
+    });
+
+  return Promise.all([remotePromise, reconstructedPromise]).then(function (vals) {
+    const remoteConsumed = vals[0];
+    const reconstructed = vals[1];
+    box.textContent =
+      "DEBUG SALDO (temporal) | operador " +
+      id +
+      " | firebaseStatus=" +
+      firebaseStatus +
+      " | localConsumed=" +
+      String(getVacationDaysConsumed(id)) +
+      " | operatorVacationSaldo.consumedDays=" +
+      remoteConsumed +
+      " | reconstructedFromSolicitudes=" +
+      reconstructed;
+  });
+}
+
+/**
  * Sincronización en vivo del saldo desde Firestore (sobrevive a borrar cookies/localStorage).
  * onSnapshot entrega el estado inicial y cambios posteriores del documento.
  */
@@ -7341,6 +7470,7 @@ function init() {
     if (localOperatorId) {
       runPortalVacationSaldoFirestoreReconcile(localOperatorId);
       startPortalVacationSaldoFirestoreLiveSync(localOperatorId);
+      renderPortalVacationSaldoDebugInfo(localOperatorId);
     }
 
     // Enlazar primero sync entre pestañas / sondeo: si más abajo falla JSON.parse u otro paso,
@@ -7423,6 +7553,7 @@ function init() {
           refreshPortalPermisoStatusUI(oid);
           runPortalVacationSaldoFirestoreReconcile(oid);
           portalPollLocalVacationSaldoIfChanged();
+          renderPortalVacationSaldoDebugInfo(oid);
         }
       });
       window.addEventListener("focus", function () {
@@ -7431,6 +7562,7 @@ function init() {
           refreshPortalPermisoStatusUI(oid);
           runPortalVacationSaldoFirestoreReconcile(oid);
           portalPollLocalVacationSaldoIfChanged();
+          renderPortalVacationSaldoDebugInfo(oid);
         }
       });
 
@@ -9072,7 +9204,7 @@ function setupLogin() {
     return;
   }
 
-  const doLogin = () => {
+  const doLogin = async () => {
     const username = userInput.value.trim();
     const password = passInput.value;
 
@@ -9136,6 +9268,11 @@ function setupLogin() {
       // - local => portal.html
       // - admin/maestro => admin.html
       // - maestroop => maestroop.html
+      if (role === "local" && operatorId) {
+        // Antes de abrir portal, restaurar consumo desde Firestore para evitar volver a base tras borrar cookies.
+        await hydrateVacationConsumedFromFirestoreForLogin(operatorId);
+      }
+
       if (redirectTo) {
         window.location.href = redirectTo;
       } else {
