@@ -742,9 +742,54 @@ function syncVacationDaysConsumedToFirestore(opId, consumedDays) {
 }
 
 /**
+ * Recupera consumo desde historial Firestore cuando falta operatorVacationSaldo.
+ * Suma No. días de solicitudes aprobadas que consumen tope vacacional.
+ */
+function estimateVacationConsumedDaysFromSolicitudesFirestore(opId) {
+  const id = String(opId || "").trim();
+  if (!id || !db) return Promise.resolve(0);
+  return db
+    .collection("solicitudes")
+    .where("operatorId", "==", id)
+    .get()
+    .then(function (qs) {
+      if (!qs || qs.empty) return 0;
+      let total = 0;
+      qs.forEach(function (docSnap) {
+        const d = docSnap && typeof docSnap.data === "function" ? docSnap.data() : {};
+        const status = String(d && d.status != null ? d.status : "")
+          .trim()
+          .toLowerCase();
+        if (status !== "aprobado") return;
+        const motive = String(
+          d && d.motive != null
+            ? d.motive
+            : d && d.payload && d.payload.motive != null
+            ? d.payload.motive
+            : ""
+        ).trim();
+        if (!PORTAL_MOTIVOS_CONSUMEN_SALDO_VACACIONES.includes(motive)) return;
+        const values =
+          d && d.values && typeof d.values === "object"
+            ? d.values
+            : d && d.payload && d.payload.values && typeof d.payload.values === "object"
+            ? d.payload.values
+            : {};
+        total += getPortalDiasNoDiasFromPayloadValues(motive, values);
+      });
+      return total > 0 ? total : 0;
+    })
+    .catch(function (err) {
+      console.warn("[Firestore] estimar consumo desde solicitudes:", err);
+      return 0;
+    });
+}
+
+/**
  * Alinea el consumo local con `operatorVacationSaldo` en Firestore.
  * Regla clave: nunca subir días por falta de doc remoto.
  * - Si no existe doc y hay consumo local (>0), se crea en Firestore desde local.
+ * - Si no existe doc y local=0, se intenta recuperar desde solicitudes aprobadas en Firestore.
  * - Si no existe doc y local=0, no se fuerza nada (queda base local).
  * - Si existe doc, el valor remoto manda.
  */
@@ -763,10 +808,31 @@ function reconcileVacationDaysConsumedWithFirestore(opId) {
       if (!snap || !snap.exists) {
         // No existe respaldo remoto:
         // - Si local ya tiene consumo, persistir ese valor en Firestore (no resetear a base).
-        // - Si local es 0, no hay nada que reconciliar.
-        if (prev <= 0) return false;
-        return syncVacationDaysConsumedToFirestore(id, prev).then(function () {
-          return false;
+        if (prev > 0) {
+          return syncVacationDaysConsumedToFirestore(id, prev).then(function () {
+            return false;
+          });
+        }
+        // - Si local es 0, intentar reconstruirlo desde solicitudes aprobadas históricas.
+        return estimateVacationConsumedDaysFromSolicitudesFirestore(id).then(function (estimated) {
+          const recovered = Number.isFinite(estimated) && estimated > 0 ? estimated : 0;
+          if (recovered <= 0) return false;
+          try {
+            window.localStorage.setItem(key, String(recovered));
+          } catch (e) {
+            /* ignore */
+          }
+          try {
+            window.localStorage.setItem(
+              vacationSaldoNudgeStorageKey(id),
+              String(Date.now())
+            );
+          } catch (e) {
+            /* ignore */
+          }
+          return syncVacationDaysConsumedToFirestore(id, recovered).then(function () {
+            return true;
+          });
         });
       }
 
