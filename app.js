@@ -11,6 +11,8 @@ const firebaseConfig = {
 
 let db = null;
 window.__firebaseStatus = "not_initialized";
+window.__firebaseAuthReady = Promise.resolve(null);
+window.__firebaseAuthStatus = "not_started";
 
 try {
   if (typeof firebase !== "undefined") {
@@ -21,14 +23,60 @@ try {
     window.db = db;
     window.__firebaseStatus = "ok";
     console.log("[Firebase] inicializado OK");
+
+    if (typeof firebase.auth === "function") {
+      const auth = firebase.auth();
+      window.__firebaseAuthReady = (function () {
+        try {
+          const cur = auth.currentUser;
+          if (cur) {
+            window.__firebaseAuthUid = cur.uid;
+            window.__firebaseAuthStatus = "session_ok";
+            return Promise.resolve(cur);
+          }
+        } catch (e) {
+          /* ignore */
+        }
+        return auth
+          .signInAnonymously()
+          .then(function (cred) {
+            const u = cred && cred.user;
+            window.__firebaseAuthUid = u ? u.uid : "";
+            window.__firebaseAuthStatus = "anonymous_ok";
+            console.log("[Firebase] sesión anónima OK (Firestore con reglas request.auth)");
+            return u;
+          })
+          .catch(function (authErr) {
+            const c = authErr && authErr.code != null ? String(authErr.code) : "";
+            const m =
+              authErr && authErr.message != null
+                ? String(authErr.message)
+                : String(authErr);
+            window.__firebaseAuthStatus = c ? c + ": " + m : m;
+            console.warn(
+              "[Firebase] signInAnonymously falló — en Console activa Authentication → Anonymous y revisa reglas:",
+              authErr
+            );
+            return null;
+          });
+      })();
+    } else {
+      window.__firebaseAuthStatus = "auth_sdk_missing";
+    }
   } else {
     window.__firebaseStatus = "sdk_missing";
+    window.__firebaseAuthStatus = "sdk_missing";
     console.warn("[Firebase] SDK no cargado");
   }
 } catch (err) {
   window.__firebaseStatus = "error";
   window.__firebaseError = String(err && err.message ? err.message : err);
+  window.__firebaseAuthStatus = "init_error";
   console.error("[Firebase] error al inicializar:", err);
+}
+
+function whenFirebaseAuthReady() {
+  return window.__firebaseAuthReady || Promise.resolve(null);
 }
 
 /**
@@ -81,31 +129,35 @@ function backupPortalRequestToFirestore(opId, payload, tipo) {
     status: "pendiente",
   };
 
-  return db
-    .collection("solicitudes")
-    .doc(folio)
-    .set(doc)
+  return whenFirebaseAuthReady()
     .then(function () {
-      console.log(
-        "[Firestore] solicitud respaldada | folio:",
-        folio
-      );
-      try {
-        if (window.__firestoreHistorialByOperator && operatorId) {
-          delete window.__firestoreHistorialByOperator[operatorId];
-        }
-      } catch (e) {
-        /* ignore */
-      }
-      const histContent = document.getElementById("portalHistoryContent");
-      if (
-        histContent &&
-        histContent.style.display !== "none" &&
-        operatorId
-      ) {
-        refreshPortalHistoryFromFirestore(operatorId);
-      }
-      return folio;
+      if (!db) return null;
+      return db
+        .collection("solicitudes")
+        .doc(folio)
+        .set(doc)
+        .then(function () {
+          console.log(
+            "[Firestore] solicitud respaldada | folio:",
+            folio
+          );
+          try {
+            if (window.__firestoreHistorialByOperator && operatorId) {
+              delete window.__firestoreHistorialByOperator[operatorId];
+            }
+          } catch (e) {
+            /* ignore */
+          }
+          const histContent = document.getElementById("portalHistoryContent");
+          if (
+            histContent &&
+            histContent.style.display !== "none" &&
+            operatorId
+          ) {
+            refreshPortalHistoryFromFirestore(operatorId);
+          }
+          return folio;
+        });
     })
     .catch(function (err) {
       console.warn("[Firestore] no se pudo respaldar solicitud:", err);
@@ -165,10 +217,14 @@ function firestoreDocToHistoryEntry(docSnap) {
 function pickLatestFirestoreSolicitudDocSnapForOperator(opId) {
   const id = String(opId || "").trim();
   if (!id || !db) return Promise.resolve(null);
-  return db
-    .collection("solicitudes")
-    .where("operatorId", "==", id)
-    .get()
+  return whenFirebaseAuthReady()
+    .then(function () {
+      if (!db) return null;
+      return db
+        .collection("solicitudes")
+        .where("operatorId", "==", id)
+        .get();
+    })
     .then(function (qs) {
       if (!qs || !qs.docs || !qs.docs.length) return null;
       let best = null;
@@ -253,18 +309,20 @@ function syncOperatorLatestSolicitudFirestoreStatus(opId, desiredStatus) {
       });
   }
 
-  if (folioHint) {
-    return db
-      .collection("solicitudes")
-      .doc(folioHint)
-      .get()
-      .then(function (snap) {
-        if (snap && snap.exists) return applyDoc(snap);
-        return pickLatestFirestoreSolicitudDocSnapForOperator(id).then(applyDoc);
-      });
-  }
-
-  return pickLatestFirestoreSolicitudDocSnapForOperator(id).then(applyDoc);
+  return whenFirebaseAuthReady().then(function () {
+    if (!db) return Promise.resolve(false);
+    if (folioHint) {
+      return db
+        .collection("solicitudes")
+        .doc(folioHint)
+        .get()
+        .then(function (snap) {
+          if (snap && snap.exists) return applyDoc(snap);
+          return pickLatestFirestoreSolicitudDocSnapForOperator(id).then(applyDoc);
+        });
+    }
+    return pickLatestFirestoreSolicitudDocSnapForOperator(id).then(applyDoc);
+  });
 }
 
 window.__solicitudFsStatusBackfillCache =
@@ -336,15 +394,20 @@ function backfillSolicitudFirestoreStatusIfNeeded(entry) {
   const cache = window.__solicitudFsStatusBackfillCache;
   if (cache[folio] === fsStatus) return;
   cache[folio] = fsStatus;
-  db.collection("solicitudes")
-    .doc(folio)
-    .set(
-      {
-        status: fsStatus,
-        statusUpdatedAt: firebase.firestore.FieldValue.serverTimestamp(),
-      },
-      { merge: true }
-    )
+  whenFirebaseAuthReady()
+    .then(function () {
+      if (!db) return;
+      return db
+        .collection("solicitudes")
+        .doc(folio)
+        .set(
+          {
+            status: fsStatus,
+            statusUpdatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+          },
+          { merge: true }
+        );
+    })
     .then(function () {
       try {
         const oid =
@@ -489,10 +552,16 @@ function refreshPortalHistoryFromFirestore(opId) {
     maybeRenderPortalRequestHistory();
     return;
   }
-  db.collection("solicitudes")
-    .where("operatorId", "==", id)
-    .get()
+  whenFirebaseAuthReady()
+    .then(function () {
+      if (!db) return;
+      return db
+        .collection("solicitudes")
+        .where("operatorId", "==", id)
+        .get();
+    })
     .then(function (qs) {
+      if (!qs || !qs.docs) return;
       window.__firestoreHistorialByOperator[id] = qs.docs.map(
         firestoreDocToHistoryEntry
       );
@@ -535,12 +604,19 @@ function refreshAdminHistorialFromFirestoreAndRender() {
       renderAdminRequestHistoryUnified();
       return;
     }
-    db.collection("solicitudes")
-      .orderBy("createdAt", "desc")
-      .limit(FIRESTORE_SOLICITUDES_LIMIT_ALL)
-      .get()
+    whenFirebaseAuthReady()
+      .then(function () {
+        if (!db) return;
+        return db
+          .collection("solicitudes")
+          .orderBy("createdAt", "desc")
+          .limit(FIRESTORE_SOLICITUDES_LIMIT_ALL)
+          .get();
+      })
       .then(function (qs) {
-        window.__firestoreHistorialAll = qs.docs.map(firestoreDocToHistoryEntry);
+        if (qs && qs.docs) {
+          window.__firestoreHistorialAll = qs.docs.map(firestoreDocToHistoryEntry);
+        }
         renderAdminRequestHistoryUnified();
       })
       .catch(function (err) {
@@ -562,13 +638,20 @@ function refreshAdminHistorialFromFirestoreAndRender() {
     renderAdminRequestHistoryUnified();
     return;
   }
-  db.collection("solicitudes")
-    .where("operatorId", "==", opId)
-    .get()
+  whenFirebaseAuthReady()
+    .then(function () {
+      if (!db) return;
+      return db
+        .collection("solicitudes")
+        .where("operatorId", "==", opId)
+        .get();
+    })
     .then(function (qs) {
-      window.__firestoreHistorialByOperator[opId] = qs.docs.map(
-        firestoreDocToHistoryEntry
-      );
+      if (qs && qs.docs) {
+        window.__firestoreHistorialByOperator[opId] = qs.docs.map(
+          firestoreDocToHistoryEntry
+        );
+      }
       renderAdminRequestHistoryUnified();
     })
     .catch(function (err) {
@@ -587,11 +670,18 @@ function deleteSolicitudesFromFirestoreByOperator(opId) {
   if (!id || !db) {
     return Promise.resolve({ deletedCount: 0, skipped: true });
   }
-  return db
-    .collection("solicitudes")
-    .where("operatorId", "==", id)
-    .get()
+  return whenFirebaseAuthReady()
+    .then(function () {
+      if (!db) return null;
+      return db
+        .collection("solicitudes")
+        .where("operatorId", "==", id)
+        .get();
+    })
     .then(function (qs) {
+      if (qs === null) {
+        return { deletedCount: 0, skipped: true };
+      }
       if (!qs || !qs.docs || !qs.docs.length) {
         return { deletedCount: 0, skipped: false };
       }
@@ -726,21 +816,24 @@ function syncVacationSaldoFromLocalToFirestore(opId) {
 }
 
 function syncVacationDaysConsumedToFirestore(opId, consumedDays) {
-  const ref = vacationSaldoFirestoreDoc(opId);
-  if (!ref) return Promise.resolve(false);
   const n = parseInt(String(consumedDays || "0"), 10);
   const safe = Number.isFinite(n) && n > 0 ? n : 0;
-  return ref
-    .set(
-      {
-        operatorId: String(opId).trim(),
-        consumedDays: safe,
-        updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
-      },
-      { merge: true }
-    )
+  return whenFirebaseAuthReady()
     .then(function () {
-      return true;
+      const ref = vacationSaldoFirestoreDoc(opId);
+      if (!ref) return Promise.resolve(false);
+      return ref
+        .set(
+          {
+            operatorId: String(opId).trim(),
+            consumedDays: safe,
+            updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+          },
+          { merge: true }
+        )
+        .then(function () {
+          return true;
+        });
     })
     .catch(function (err) {
       console.warn("[Firestore] no se pudo sincronizar saldo vacaciones:", err);
@@ -791,11 +884,18 @@ function estimateVacationConsumedFromSolicitudesFirestoreDetailed(opId) {
   if (!idStr || !db) {
     return Promise.resolve({ total: 0, error: null, docCount: 0, query: "skip" });
   }
-  return db
-    .collection("solicitudes")
-    .where("operatorId", "==", idStr)
-    .get()
+  return whenFirebaseAuthReady()
+    .then(function () {
+      if (!db) return null;
+      return db
+        .collection("solicitudes")
+        .where("operatorId", "==", idStr)
+        .get();
+    })
     .then(function (qs) {
+      if (qs === null) {
+        return { total: 0, error: null, docCount: 0, query: "skip" };
+      }
       if (qs && !qs.empty) {
         const total = sumConsumedDaysFromSolicitudesQuerySnapshot(qs);
         return {
@@ -859,12 +959,16 @@ function reconcileVacationDaysConsumedWithFirestore(opId) {
   const id = String(opId || "").trim();
   if (!id || !db) return Promise.resolve(false);
   const key = vacationDaysConsumedStorageKey(id);
-  const ref = vacationSaldoFirestoreDoc(id);
-  if (!ref) return Promise.resolve(false);
+  if (!vacationSaldoFirestoreDoc(id)) return Promise.resolve(false);
 
-  return ref
-    .get()
+  return whenFirebaseAuthReady()
+    .then(function () {
+      const ref = vacationSaldoFirestoreDoc(id);
+      if (!ref) return false;
+      return ref.get();
+    })
     .then(function (snap) {
+      if (snap === false) return false;
       const prev = getVacationDaysConsumed(id);
 
       if (!snap || !snap.exists) {
@@ -953,11 +1057,15 @@ function hydrateVacationConsumedFromFirestoreForLogin(opId) {
   const id = String(opId || "").trim();
   if (!id || !db) return Promise.resolve(false);
   const key = vacationDaysConsumedStorageKey(id);
-  const ref = vacationSaldoFirestoreDoc(id);
-  if (!ref) return Promise.resolve(false);
-  return ref
-    .get()
+  if (!vacationSaldoFirestoreDoc(id)) return Promise.resolve(false);
+  return whenFirebaseAuthReady()
+    .then(function () {
+      const ref = vacationSaldoFirestoreDoc(id);
+      if (!ref) return false;
+      return ref.get();
+    })
     .then(function (snap) {
+      if (snap === false) return false;
       if (snap && snap.exists) {
         const d = snap.data() || {};
         const n = parseInt(
@@ -1031,23 +1139,25 @@ function renderPortalVacationSaldoDebugInfo(opId) {
     " | operatorVacationSaldo.consumedDays=consultando... | reconstructedFromSolicitudes=consultando...";
 
   if (!db) return Promise.resolve();
-  const ref = vacationSaldoFirestoreDoc(id);
-  const remotePromise = ref
-    ? ref
-        .get()
-        .then(function (snap) {
-          if (!snap || !snap.exists) return "no_doc";
-          const d = snap.data() || {};
-          const n = parseInt(
-            String(d.consumedDays != null ? d.consumedDays : "0"),
-            10
-          );
-          return Number.isFinite(n) && n > 0 ? String(n) : "0";
-        })
-        .catch(function (err) {
-          return "READ_FAIL: " + firebaseErrorBrief(err);
-        })
-    : Promise.resolve("ref_null");
+
+  const remotePromise = whenFirebaseAuthReady().then(function () {
+    const ref = vacationSaldoFirestoreDoc(id);
+    if (!ref) return "ref_null";
+    return ref
+      .get()
+      .then(function (snap) {
+        if (!snap || !snap.exists) return "no_doc";
+        const d = snap.data() || {};
+        const n = parseInt(
+          String(d.consumedDays != null ? d.consumedDays : "0"),
+          10
+        );
+        return Number.isFinite(n) && n > 0 ? String(n) : "0";
+      })
+      .catch(function (err) {
+        return "READ_FAIL: " + firebaseErrorBrief(err);
+      });
+  });
 
   const reconstructedPromise = estimateVacationConsumedFromSolicitudesFirestoreDetailed(id);
 
@@ -1066,6 +1176,8 @@ function renderPortalVacationSaldoDebugInfo(opId) {
       id +
       " | firebaseStatus=" +
       firebaseStatus +
+      " | auth=" +
+      String(window.__firebaseAuthStatus || "pending") +
       " | localConsumed=" +
       String(getVacationDaysConsumed(id)) +
       " | operatorVacationSaldo.consumedDays=" +
@@ -1083,44 +1195,53 @@ function startPortalVacationSaldoFirestoreLiveSync(opId) {
   const id = String(opId || "").trim();
   if (!id || !db) return;
   if (window.__portalVacationSaldoLiveSyncOpId === id) return;
-  try {
-    if (typeof window.__portalVacationSaldoLiveSyncUnsub === "function") {
-      window.__portalVacationSaldoLiveSyncUnsub();
-    }
-  } catch (e) {
-    /* ignore */
-  }
-  window.__portalVacationSaldoLiveSyncOpId = id;
-  const ref = vacationSaldoFirestoreDoc(id);
-  if (!ref || typeof ref.onSnapshot !== "function") return;
-  window.__portalVacationSaldoLiveSyncUnsub = ref.onSnapshot(
-    function (snap) {
-      if (!snap || !snap.exists) return;
-      const data = snap.data() || {};
-      const n = parseInt(
-        String(data.consumedDays != null ? data.consumedDays : "0"),
-        10
-      );
-      const remote = Number.isFinite(n) && n > 0 ? n : 0;
-      const prev = getVacationDaysConsumed(id);
-      if (remote === prev) return;
-      const key = vacationDaysConsumedStorageKey(id);
-      if (remote === 0) {
-        window.localStorage.removeItem(key);
-      } else {
-        window.localStorage.setItem(key, String(remote));
+  if (window.__portalVacationSaldoLiveSyncAttachPending === id) return;
+  window.__portalVacationSaldoLiveSyncAttachPending = id;
+  whenFirebaseAuthReady().then(function () {
+    if (window.__portalVacationSaldoLiveSyncAttachPending !== id) return;
+    window.__portalVacationSaldoLiveSyncAttachPending = null;
+    const liveId = (window.sessionStorage.getItem("vacaciones_operator_id") || "").trim();
+    if (liveId !== id) return;
+    if (window.__portalVacationSaldoLiveSyncOpId === id) return;
+    try {
+      if (typeof window.__portalVacationSaldoLiveSyncUnsub === "function") {
+        window.__portalVacationSaldoLiveSyncUnsub();
       }
-      try {
-        window.localStorage.setItem(vacationSaldoNudgeStorageKey(id), String(Date.now()));
-      } catch (e) {
-        /* ignore */
-      }
-      portalRefreshLocalVacationSaldoUIForOperator(id);
-    },
-    function (err) {
-      console.warn("[Firestore] live sync saldo vacaciones:", err);
+    } catch (e) {
+      /* ignore */
     }
-  );
+    const ref = vacationSaldoFirestoreDoc(id);
+    if (!ref || typeof ref.onSnapshot !== "function") return;
+    window.__portalVacationSaldoLiveSyncOpId = id;
+    window.__portalVacationSaldoLiveSyncUnsub = ref.onSnapshot(
+      function (snap) {
+        if (!snap || !snap.exists) return;
+        const data = snap.data() || {};
+        const n = parseInt(
+          String(data.consumedDays != null ? data.consumedDays : "0"),
+          10
+        );
+        const remote = Number.isFinite(n) && n > 0 ? n : 0;
+        const prev = getVacationDaysConsumed(id);
+        if (remote === prev) return;
+        const key = vacationDaysConsumedStorageKey(id);
+        if (remote === 0) {
+          window.localStorage.removeItem(key);
+        } else {
+          window.localStorage.setItem(key, String(remote));
+        }
+        try {
+          window.localStorage.setItem(vacationSaldoNudgeStorageKey(id), String(Date.now()));
+        } catch (e) {
+          /* ignore */
+        }
+        portalRefreshLocalVacationSaldoUIForOperator(id);
+      },
+      function (err) {
+        console.warn("[Firestore] live sync saldo vacaciones:", err);
+      }
+    );
+  });
 }
 
 /** Cambia en cada reset de saldo para disparar `storage` / sondeo aunque el consumo ya fuera 0. */
