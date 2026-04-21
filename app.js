@@ -796,6 +796,11 @@ function vacationDaysConsumedStorageKey(opId) {
   return "vacaciones_operador_vacaciones_consumidas_" + String(opId).trim();
 }
 
+function vacationDaysConsumedLastAppliedTokenKey(opId) {
+  if (!opId) return "";
+  return "vacaciones_operador_vacaciones_consumidas_token_" + String(opId).trim();
+}
+
 function vacationSaldoFirestoreDoc(opId) {
   if (!db) return null;
   const id = String(opId || "").trim();
@@ -2577,6 +2582,7 @@ function syncPortalPostDecisionActionsVisibility(opId) {
 function recordVacationDaysConsumedIfApprovedVacacionesClose(operatorIdStr) {
   if (!operatorIdStr) return;
   try {
+    let consumeToken = "";
     syncAdminRequestHistoryEstados(operatorIdStr);
     const s = withComputedEstatusFinal(getPermisoStatus(operatorIdStr));
     const v = normalizePermisoRowValue(s.estatusFinal);
@@ -2588,6 +2594,13 @@ function recordVacationDaysConsumedIfApprovedVacacionesClose(operatorIdStr) {
       const latestEntry = history[latestIdx];
       if (!latestEntry) return;
       if (isMaestroArchivadaMarker(latestEntry)) return;
+      const folioToken =
+        latestEntry && latestEntry.firestoreFolio
+          ? String(latestEntry.firestoreFolio).trim()
+          : "";
+      const tsToken =
+        latestEntry && latestEntry.ts != null ? String(latestEntry.ts).trim() : "";
+      consumeToken = folioToken || (tsToken ? "ts_" + tsToken : "");
       const displayEstado = resolveLatestHistorialEstadoForDisplay(
         operatorIdStr,
         latestEntry
@@ -2609,6 +2622,11 @@ function recordVacationDaysConsumedIfApprovedVacacionesClose(operatorIdStr) {
     const taken = getPortalDiasNoDiasFromPayloadValues(motive, vals);
     if (taken < 1) return;
     const key = vacationDaysConsumedStorageKey(operatorIdStr);
+    const tokenKey = vacationDaysConsumedLastAppliedTokenKey(operatorIdStr);
+    if (consumeToken && tokenKey) {
+      const lastToken = String(window.localStorage.getItem(tokenKey) || "").trim();
+      if (lastToken === consumeToken) return;
+    }
     const prev = parseInt(window.localStorage.getItem(key) || "0", 10);
     const safePrev = Number.isFinite(prev) && prev > 0 ? prev : 0;
     const fallbackNext = safePrev + taken;
@@ -2627,10 +2645,16 @@ function recordVacationDaysConsumedIfApprovedVacacionesClose(operatorIdStr) {
           }
         }
         window.localStorage.setItem(key, String(next));
+        if (consumeToken && tokenKey) {
+          window.localStorage.setItem(tokenKey, consumeToken);
+        }
         syncVacationDaysConsumedToFirestore(operatorIdStr, next);
       })
       .catch(function () {
         window.localStorage.setItem(key, String(fallbackNext));
+        if (consumeToken && tokenKey) {
+          window.localStorage.setItem(tokenKey, consumeToken);
+        }
         syncVacationDaysConsumedToFirestore(operatorIdStr, fallbackNext);
       });
   } catch (e) {
