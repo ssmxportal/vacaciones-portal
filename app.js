@@ -2601,14 +2601,6 @@ function recordVacationDaysConsumedIfApprovedVacacionesClose(operatorIdStr) {
       const tsToken =
         latestEntry && latestEntry.ts != null ? String(latestEntry.ts).trim() : "";
       consumeToken = folioToken || (tsToken ? "ts_" + tsToken : "");
-      const displayEstado = resolveLatestHistorialEstadoForDisplay(
-        operatorIdStr,
-        latestEntry
-      );
-      if (displayEstado !== "aprobado") return;
-    } else {
-      const soloPermiso = computeHistorialEstadoForLatestEntry(operatorIdStr);
-      if (soloPermiso !== "aprobado") return;
     }
 
     const lastPayload = getLastSavedPayloadFromOperator(operatorIdStr);
@@ -2621,6 +2613,13 @@ function recordVacationDaysConsumedIfApprovedVacacionesClose(operatorIdStr) {
         : {};
     const taken = getPortalDiasNoDiasFromPayloadValues(motive, vals);
     if (taken < 1) return;
+    if (!consumeToken) {
+      const payloadToken = JSON.stringify({
+        motive: motive,
+        values: vals,
+      });
+      consumeToken = "payload_" + payloadToken;
+    }
     const key = vacationDaysConsumedStorageKey(operatorIdStr);
     const tokenKey = vacationDaysConsumedLastAppliedTokenKey(operatorIdStr);
     if (consumeToken && tokenKey) {
