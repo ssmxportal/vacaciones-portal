@@ -2571,13 +2571,33 @@ function syncPortalPostDecisionActionsVisibility(opId) {
 /**
  * Al cerrar un ciclo (p. ej. "Generar nueva solicitud" o reset maestro), si la solicitud
  * estaba aprobada y llevaba No. días (Vacaciones o permisos / falta justificada), suma esos días al consumo.
+ * Solo cuenta si el cierre corresponde a una solicitud realmente aprobada de punta a punta:
+ * no descuenta si la fila vigente es Archivada, Pendiente o reset por maestro, ni si fue rechazada.
  */
 function recordVacationDaysConsumedIfApprovedVacacionesClose(operatorIdStr) {
   if (!operatorIdStr) return;
   try {
+    syncAdminRequestHistoryEstados(operatorIdStr);
     const s = withComputedEstatusFinal(getPermisoStatus(operatorIdStr));
     const v = normalizePermisoRowValue(s.estatusFinal);
     if (v !== "aprobado") return;
+
+    const history = getAdminRequestHistory(operatorIdStr);
+    if (history.length) {
+      const latestIdx = latestHistoryEntryIndex(history);
+      const latestEntry = history[latestIdx];
+      if (!latestEntry) return;
+      if (isMaestroArchivadaMarker(latestEntry)) return;
+      const displayEstado = resolveLatestHistorialEstadoForDisplay(
+        operatorIdStr,
+        latestEntry
+      );
+      if (displayEstado !== "aprobado") return;
+    } else {
+      const soloPermiso = computeHistorialEstadoForLatestEntry(operatorIdStr);
+      if (soloPermiso !== "aprobado") return;
+    }
+
     const lastPayload = getLastSavedPayloadFromOperator(operatorIdStr);
     if (!lastPayload) return;
     const motive = String(lastPayload.motive || "").trim();
@@ -2591,9 +2611,28 @@ function recordVacationDaysConsumedIfApprovedVacacionesClose(operatorIdStr) {
     const key = vacationDaysConsumedStorageKey(operatorIdStr);
     const prev = parseInt(window.localStorage.getItem(key) || "0", 10);
     const safePrev = Number.isFinite(prev) && prev > 0 ? prev : 0;
-    const next = safePrev + taken;
-    window.localStorage.setItem(key, String(next));
-    syncVacationDaysConsumedToFirestore(operatorIdStr, next);
+    const fallbackNext = safePrev + taken;
+
+    // Fuente de verdad: solicitudes aprobadas en Firestore.
+    // Evita doble descuento cuando el primer cierre ya fue reconstruido desde solicitudes.
+    estimateVacationConsumedFromSolicitudesFirestoreDetailed(operatorIdStr)
+      .then(function (rec) {
+        const estimated = rec && Number.isFinite(rec.total) ? rec.total : NaN;
+        let next = fallbackNext;
+        if (Number.isFinite(estimated) && estimated > 0) {
+          if (estimated >= safePrev && estimated <= fallbackNext) {
+            next = estimated;
+          } else if (estimated > fallbackNext) {
+            next = estimated;
+          }
+        }
+        window.localStorage.setItem(key, String(next));
+        syncVacationDaysConsumedToFirestore(operatorIdStr, next);
+      })
+      .catch(function () {
+        window.localStorage.setItem(key, String(fallbackNext));
+        syncVacationDaysConsumedToFirestore(operatorIdStr, fallbackNext);
+      });
   } catch (e) {
     /* ignore */
   }
