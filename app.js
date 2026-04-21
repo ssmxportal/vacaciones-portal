@@ -1012,27 +1012,10 @@ function reconcileVacationDaysConsumedWithFirestore(opId) {
       );
       const remote = Number.isFinite(n) && n > 0 ? n : 0;
 
-      // Doc existe: confiar en consumedDays remoto. No reconstruir desde solicitudes si viene 0
-      // (evita anular «Restablecer a 20» mientras sigan existiendo solicitudes aprobadas en Firestore).
-      if (remote === 0) {
-        if (prev === 0) return false;
-        try {
-          window.localStorage.removeItem(key);
-        } catch (e) {
-          /* ignore */
-        }
-        try {
-          window.localStorage.setItem(
-            vacationSaldoNudgeStorageKey(id),
-            String(Date.now())
-          );
-        } catch (e) {
-          /* ignore */
-        }
-        return true;
-      }
+      // Doc existe con consumedDays=0: no reconstruir desde solicitudes (evita anular «Restablecer a 20»).
+      // Si local>0 y remoto=0, el remoto va atrasado o el .set aún no llegó: subir con prev>remote (incluye remoto 0).
 
-      // Local por delante del remoto (p. ej. segundo cierre aún no persistido en la nube): subir Firestore.
+      // Local por delante del remoto (p. ej. cierre recién guardado en local; Firestore aún en 0): subir.
       if (prev > remote) {
         return syncVacationDaysConsumedToFirestore(id, prev).then(function () {
           return false;
