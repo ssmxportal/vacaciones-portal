@@ -1312,14 +1312,21 @@ function getVacationDaysConsumed(opId) {
 /**
  * Maestro / utilidades: devuelve al operador el tope completo (20).
  * Los días gastados acumulados pasan a 0; notifica al portal para actualizar "días disponibles".
+ * @returns {Promise<boolean>}
  */
 function clearVacationDaysConsumedStorageForOperator(opId) {
-  if (!opId) return;
+  if (!opId) return Promise.resolve(false);
   const id = String(opId).trim();
   const key = vacationDaysConsumedStorageKey(id);
-  if (!key) return;
+  if (!key) return Promise.resolve(false);
   try {
     window.localStorage.removeItem(key);
+  } catch (e) {
+    /* ignore */
+  }
+  try {
+    const tk = vacationDaysConsumedLastAppliedTokenKey(id);
+    if (tk) window.localStorage.removeItem(tk);
   } catch (e) {
     /* ignore */
   }
@@ -1328,8 +1335,8 @@ function clearVacationDaysConsumedStorageForOperator(opId) {
   } catch (e) {
     /* ignore */
   }
-  syncVacationDaysConsumedToFirestore(id, 0);
   broadcastVacationSaldoReset(id);
+  return syncVacationDaysConsumedToFirestore(id, 0);
 }
 
 /** Saldo restante en portal: 20 menos días ya consumidos (tras cierres aprobados con No. días). */
@@ -9474,14 +9481,14 @@ function setupMaestroOp() {
         return;
       }
       const opId = String(selectedOperator.id).trim();
-      clearVacationDaysConsumedStorageForOperator(opId);
-      const restante = getPortalVacationSaldoRestante(opId);
-      statusEl.textContent =
-        `Operador ${opId}: consumo reiniciado. Saldo leido aqui: ${restante} dias. ` +
-        "OBLIGATORIO abrir portal y maestroop con la MISMA URL (ej. http://127.0.0.1:8765/...). " +
-        "Si abres los HTML con doble clic (file://), cada pagina tiene su propio almacenamiento y el reset NO se ve en el portal. " +
-        "Use abrir-con-servidor-local.bat y entre desde el navegador.";
-      renderMaestroVacationSaldoDebugInfo(opId);
+      statusEl.textContent = `Operador ${opId}: aplicando restablecimiento…`;
+      clearVacationDaysConsumedStorageForOperator(opId).then(function () {
+        statusEl.textContent =
+          `Operador ${opId}: días disponibles de vacaciones = ${DIAS_VACACIONALES_BASE} ` +
+          "(consumo en 0; guardado en este navegador y en Firestore). " +
+          "Abre portal y maestroop con la misma URL (http://…); con file:// cada página tiene su propio almacenamiento.";
+        renderMaestroVacationSaldoDebugInfo(opId);
+      });
     });
   }
 }
