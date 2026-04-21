@@ -1229,7 +1229,8 @@ function renderPortalVacationSaldoDebugInfo() {
  * Maestroop: muestra debug de saldo para el operador seleccionado.
  */
 function renderMaestroVacationSaldoDebugInfo(opId) {
-  if (!isMaestroOpHtmlPage()) return Promise.resolve();
+  const maestroRoot = document.getElementById("maestroOpRoot");
+  if (!maestroRoot) return Promise.resolve();
   const isAuth = window.sessionStorage.getItem("vacaciones_auth");
   const role = window.sessionStorage.getItem("vacaciones_role");
   if (isAuth !== "true" || role !== "maestroop") return Promise.resolve();
