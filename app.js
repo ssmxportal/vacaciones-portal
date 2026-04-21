@@ -954,11 +954,9 @@ function estimateVacationConsumedDaysFromSolicitudesFirestore(opId) {
 
 /**
  * Alinea el consumo local con `operatorVacationSaldo` en Firestore.
- * Regla clave: nunca subir días por falta de doc remoto.
- * - Si no existe doc y hay consumo local (>0), se crea en Firestore desde local.
- * - Si no existe doc y local=0, se intenta recuperar desde solicitudes aprobadas en Firestore.
- * - Si no existe doc y local=0, no se fuerza nada (queda base local).
- * - Si existe doc, el valor remoto manda.
+ * - Sin doc: persistir local si >0; si local=0, reconstruir desde solicitudes aprobadas (migración).
+ * - Con doc y consumedDays=0: respetar 0 (no reconstruir desde solicitudes; no anular restablecer saldo).
+ * - Con doc y consumedDays>0: si local > remoto, subir remoto (evita que Firestore atrasado pise un cierre reciente).
  */
 function reconcileVacationDaysConsumedWithFirestore(opId) {
   const id = String(opId || "").trim();
@@ -1014,35 +1012,30 @@ function reconcileVacationDaysConsumedWithFirestore(opId) {
       );
       const remote = Number.isFinite(n) && n > 0 ? n : 0;
 
+      // Doc existe: confiar en consumedDays remoto. No reconstruir desde solicitudes si viene 0
+      // (evita anular «Restablecer a 20» mientras sigan existiendo solicitudes aprobadas en Firestore).
       if (remote === 0) {
-        return estimateVacationConsumedDaysFromSolicitudesFirestore(id).then(function (estimated) {
-          const recovered = Number.isFinite(estimated) && estimated > 0 ? estimated : 0;
-          if (recovered <= 0) {
-            if (prev === 0) return false;
-            try {
-              window.localStorage.removeItem(key);
-            } catch (e) {
-              /* ignore */
-            }
-            return true;
-          }
-          if (recovered === prev) return false;
-          try {
-            window.localStorage.setItem(key, String(recovered));
-          } catch (e) {
-            /* ignore */
-          }
-          try {
-            window.localStorage.setItem(
-              vacationSaldoNudgeStorageKey(id),
-              String(Date.now())
-            );
-          } catch (e) {
-            /* ignore */
-          }
-          return syncVacationDaysConsumedToFirestore(id, recovered).then(function () {
-            return true;
-          });
+        if (prev === 0) return false;
+        try {
+          window.localStorage.removeItem(key);
+        } catch (e) {
+          /* ignore */
+        }
+        try {
+          window.localStorage.setItem(
+            vacationSaldoNudgeStorageKey(id),
+            String(Date.now())
+          );
+        } catch (e) {
+          /* ignore */
+        }
+        return true;
+      }
+
+      // Local por delante del remoto (p. ej. segundo cierre aún no persistido en la nube): subir Firestore.
+      if (prev > remote) {
+        return syncVacationDaysConsumedToFirestore(id, prev).then(function () {
+          return false;
         });
       }
 
@@ -1105,17 +1098,8 @@ function hydrateVacationConsumedFromFirestoreForLogin(opId) {
           window.localStorage.setItem(key, String(remote));
           return true;
         }
-        return estimateVacationConsumedDaysFromSolicitudesFirestore(id).then(function (estimated) {
-          const recovered = Number.isFinite(estimated) && estimated > 0 ? estimated : 0;
-          if (recovered > 0) {
-            window.localStorage.setItem(key, String(recovered));
-            return syncVacationDaysConsumedToFirestore(id, recovered).then(function () {
-              return true;
-            });
-          }
-          window.localStorage.removeItem(key);
-          return true;
-        });
+        window.localStorage.removeItem(key);
+        return true;
       }
       return estimateVacationConsumedDaysFromSolicitudesFirestore(id).then(function (estimated) {
         const recovered = Number.isFinite(estimated) && estimated > 0 ? estimated : 0;
@@ -1275,6 +1259,10 @@ function startPortalVacationSaldoFirestoreLiveSync(opId) {
         const remote = Number.isFinite(n) && n > 0 ? n : 0;
         const prev = getVacationDaysConsumed(id);
         if (remote === prev) return;
+        if (prev > remote) {
+          syncVacationDaysConsumedToFirestore(id, prev);
+          return;
+        }
         const key = vacationDaysConsumedStorageKey(id);
         if (remote === 0) {
           window.localStorage.removeItem(key);
