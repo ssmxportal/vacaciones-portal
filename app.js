@@ -2660,27 +2660,37 @@ function recordVacationDaysConsumedIfApprovedVacacionesClose(operatorIdStr) {
     const safePrev = Number.isFinite(prev) && prev > 0 ? prev : 0;
     const fallbackNext = safePrev + taken;
 
-    // Firestore puede ir atrasado respecto al cierre actual (la nueva solicitud aún no está en la nube).
-    // Tomar el máximo entre el incremento local y el total reconstruido evita quedarse en el total viejo.
+    // Aplicar YA el incremento en local y en Firestore. El portal hace reload justo después;
+    // si solo escribimos dentro de una promesa async, la recarga puede cancelar antes del setItem.
+    try {
+      window.localStorage.setItem(key, String(fallbackNext));
+      if (consumeToken && tokenKey) {
+        window.localStorage.setItem(tokenKey, consumeToken);
+      }
+    } catch (e) {
+      /* ignore */
+    }
+    syncVacationDaysConsumedToFirestore(operatorIdStr, fallbackNext);
+
+    // Ajuste opcional cuando el total en solicitudes aprobadas supera el incremento (p. ej. nube ya tenía más).
     estimateVacationConsumedFromSolicitudesFirestoreDetailed(operatorIdStr)
       .then(function (rec) {
         const estimated = rec && Number.isFinite(rec.total) ? rec.total : NaN;
-        let next = fallbackNext;
-        if (Number.isFinite(estimated) && estimated > 0) {
-          next = Math.max(fallbackNext, estimated);
-        }
-        window.localStorage.setItem(key, String(next));
-        if (consumeToken && tokenKey) {
-          window.localStorage.setItem(tokenKey, consumeToken);
+        if (!Number.isFinite(estimated) || estimated <= 0) return;
+        const next = Math.max(fallbackNext, estimated);
+        if (next === fallbackNext) return;
+        try {
+          window.localStorage.setItem(key, String(next));
+          if (consumeToken && tokenKey) {
+            window.localStorage.setItem(tokenKey, consumeToken);
+          }
+        } catch (e) {
+          /* ignore */
         }
         syncVacationDaysConsumedToFirestore(operatorIdStr, next);
       })
       .catch(function () {
-        window.localStorage.setItem(key, String(fallbackNext));
-        if (consumeToken && tokenKey) {
-          window.localStorage.setItem(tokenKey, consumeToken);
-        }
-        syncVacationDaysConsumedToFirestore(operatorIdStr, fallbackNext);
+        /* ya aplicado arriba */
       });
   } catch (e) {
     /* ignore */
