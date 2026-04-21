@@ -1014,20 +1014,43 @@ function reconcileVacationDaysConsumedWithFirestore(opId) {
       );
       const remote = Number.isFinite(n) && n > 0 ? n : 0;
 
-      if (remote === prev) return false;
-
       if (remote === 0) {
-        try {
-          window.localStorage.removeItem(key);
-        } catch (e) {
-          /* ignore */
-        }
-      } else {
-        try {
-          window.localStorage.setItem(key, String(remote));
-        } catch (e) {
-          /* ignore */
-        }
+        return estimateVacationConsumedDaysFromSolicitudesFirestore(id).then(function (estimated) {
+          const recovered = Number.isFinite(estimated) && estimated > 0 ? estimated : 0;
+          if (recovered <= 0) {
+            if (prev === 0) return false;
+            try {
+              window.localStorage.removeItem(key);
+            } catch (e) {
+              /* ignore */
+            }
+            return true;
+          }
+          if (recovered === prev) return false;
+          try {
+            window.localStorage.setItem(key, String(recovered));
+          } catch (e) {
+            /* ignore */
+          }
+          try {
+            window.localStorage.setItem(
+              vacationSaldoNudgeStorageKey(id),
+              String(Date.now())
+            );
+          } catch (e) {
+            /* ignore */
+          }
+          return syncVacationDaysConsumedToFirestore(id, recovered).then(function () {
+            return true;
+          });
+        });
+      }
+
+      if (remote === prev) return false;
+      try {
+        window.localStorage.setItem(key, String(remote));
+      } catch (e) {
+        /* ignore */
       }
       try {
         window.localStorage.setItem(
@@ -1080,10 +1103,19 @@ function hydrateVacationConsumedFromFirestoreForLogin(opId) {
         const remote = Number.isFinite(n) && n > 0 ? n : 0;
         if (remote > 0) {
           window.localStorage.setItem(key, String(remote));
-        } else {
-          window.localStorage.removeItem(key);
+          return true;
         }
-        return true;
+        return estimateVacationConsumedDaysFromSolicitudesFirestore(id).then(function (estimated) {
+          const recovered = Number.isFinite(estimated) && estimated > 0 ? estimated : 0;
+          if (recovered > 0) {
+            window.localStorage.setItem(key, String(recovered));
+            return syncVacationDaysConsumedToFirestore(id, recovered).then(function () {
+              return true;
+            });
+          }
+          window.localStorage.removeItem(key);
+          return true;
+        });
       }
       return estimateVacationConsumedDaysFromSolicitudesFirestore(id).then(function (estimated) {
         const recovered = Number.isFinite(estimated) && estimated > 0 ? estimated : 0;
