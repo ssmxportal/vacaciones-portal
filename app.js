@@ -2642,11 +2642,13 @@ function recordVacationDaysConsumedIfApprovedVacacionesClose(operatorIdStr) {
     if (v !== "aprobado") return;
 
     const history = getAdminRequestHistory(operatorIdStr);
+    let latestEntryForToken = null;
     if (history.length) {
       const latestIdx = latestHistoryEntryIndex(history);
       const latestEntry = history[latestIdx];
       if (!latestEntry) return;
       if (isMaestroArchivadaMarker(latestEntry)) return;
+      latestEntryForToken = latestEntry;
       const folioToken =
         latestEntry && latestEntry.firestoreFolio
           ? String(latestEntry.firestoreFolio).trim()
@@ -2668,6 +2670,10 @@ function recordVacationDaysConsumedIfApprovedVacacionesClose(operatorIdStr) {
     if (taken < 1) return;
     if (!consumeToken) {
       const payloadToken = JSON.stringify({
+        solicitudTs:
+          latestEntryForToken && latestEntryForToken.ts != null
+            ? latestEntryForToken.ts
+            : null,
         motive: motive,
         values: vals,
       });
@@ -2683,18 +2689,14 @@ function recordVacationDaysConsumedIfApprovedVacacionesClose(operatorIdStr) {
     const safePrev = Number.isFinite(prev) && prev > 0 ? prev : 0;
     const fallbackNext = safePrev + taken;
 
-    // Fuente de verdad: solicitudes aprobadas en Firestore.
-    // Evita doble descuento cuando el primer cierre ya fue reconstruido desde solicitudes.
+    // Firestore puede ir atrasado respecto al cierre actual (la nueva solicitud aún no está en la nube).
+    // Tomar el máximo entre el incremento local y el total reconstruido evita quedarse en el total viejo.
     estimateVacationConsumedFromSolicitudesFirestoreDetailed(operatorIdStr)
       .then(function (rec) {
         const estimated = rec && Number.isFinite(rec.total) ? rec.total : NaN;
         let next = fallbackNext;
         if (Number.isFinite(estimated) && estimated > 0) {
-          if (estimated >= safePrev && estimated <= fallbackNext) {
-            next = estimated;
-          } else if (estimated > fallbackNext) {
-            next = estimated;
-          }
+          next = Math.max(fallbackNext, estimated);
         }
         window.localStorage.setItem(key, String(next));
         if (consumeToken && tokenKey) {
