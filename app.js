@@ -1135,24 +1135,14 @@ function hydrateVacationConsumedFromFirestoreForLogin(opId) {
     });
 }
 
-/**
- * Mensaje temporal de diagnóstico (portal local) para validar origen del saldo.
- */
-function renderPortalVacationSaldoDebugInfo(opId) {
-  if (!isPortalHtmlPage()) return Promise.resolve();
-  const role = window.sessionStorage.getItem("vacaciones_role");
-  if (role !== "local") return Promise.resolve();
+function renderVacationSaldoDebugInfoIntoHost(opId, host, boxId) {
   const id = String(opId || "").trim();
-  if (!id) return Promise.resolve();
-
-  const host =
-    document.getElementById("welcomeMessageCard") || document.getElementById("appRoot");
-  if (!host) return Promise.resolve();
-
-  let box = document.getElementById("portalVacationSaldoDebugBox");
+  if (!id || !host) return Promise.resolve();
+  const debugId = String(boxId || "").trim() || "vacationSaldoDebugBox";
+  let box = document.getElementById(debugId);
   if (!box) {
     box = document.createElement("div");
-    box.id = "portalVacationSaldoDebugBox";
+    box.id = debugId;
     box.style.marginTop = "10px";
     box.style.padding = "10px 12px";
     box.style.border = "1px dashed #f59e0b";
@@ -1222,6 +1212,29 @@ function renderPortalVacationSaldoDebugInfo(opId) {
       " | reconstructedFromSolicitudes=" +
       recPart;
   });
+}
+
+/**
+ * Portal: debug desactivado en UI final (se conserva helper por soporte).
+ */
+function renderPortalVacationSaldoDebugInfo() {
+  const box = document.getElementById("portalVacationSaldoDebugBox");
+  if (box && box.parentNode) {
+    box.parentNode.removeChild(box);
+  }
+  return Promise.resolve();
+}
+
+/**
+ * Maestroop: muestra debug de saldo para el operador seleccionado.
+ */
+function renderMaestroVacationSaldoDebugInfo(opId) {
+  if (!isMaestroOpHtmlPage()) return Promise.resolve();
+  const isAuth = window.sessionStorage.getItem("vacaciones_auth");
+  const role = window.sessionStorage.getItem("vacaciones_role");
+  if (isAuth !== "true" || role !== "maestroop") return Promise.resolve();
+  const host = document.getElementById("maestroOperatorCard");
+  return renderVacationSaldoDebugInfoIntoHost(opId, host, "maestroVacationSaldoDebugBox");
 }
 
 /**
@@ -9330,6 +9343,7 @@ function setupMaestroOp() {
         </tbody>
       </table>
     `;
+    renderMaestroVacationSaldoDebugInfo(op && op.id ? String(op.id).trim() : "");
   }
 
   function resetSavedRequestByOperatorId(operatorId) {
@@ -9366,6 +9380,8 @@ function setupMaestroOp() {
       selectedOperator = null;
       card.style.display = "none";
       dataWrap.innerHTML = "";
+      const debugBox = document.getElementById("maestroVacationSaldoDebugBox");
+      if (debugBox && debugBox.parentNode) debugBox.parentNode.removeChild(debugBox);
       return;
     }
 
@@ -9389,6 +9405,8 @@ function setupMaestroOp() {
       card.style.display = "none";
       dataWrap.innerHTML = "";
       statusEl.textContent = "No se encontró operador con ese nombre o ID.";
+      const debugBox = document.getElementById("maestroVacationSaldoDebugBox");
+      if (debugBox && debugBox.parentNode) debugBox.parentNode.removeChild(debugBox);
       return;
     }
 
@@ -9412,6 +9430,7 @@ function setupMaestroOp() {
     statusEl.textContent = archivada
       ? `Operador ${id}: solicitud pendiente en curso archivada en el historial (Archivada). Borrador reiniciado.`
       : `Operador ${id}: reiniciado. (Sin borrador pendiente que archivar, o solicitud ya cerrada por admins.)`;
+    renderMaestroVacationSaldoDebugInfo(id);
   });
 
   clearHistoryBtn.addEventListener("click", () => {
@@ -9437,6 +9456,7 @@ function setupMaestroOp() {
           statusEl.textContent =
             `Historial de solicitudes de ${opId} borrado (Firestore: ${deletedCount} docs). ` +
             `Saldo de días no se reinicia: quedan ${restante} días disponibles (consumo guardado aparte en operatorVacationSaldo).`;
+          return renderMaestroVacationSaldoDebugInfo(opId);
         });
       })
       .catch(function (err) {
@@ -9460,6 +9480,7 @@ function setupMaestroOp() {
         "OBLIGATORIO abrir portal y maestroop con la MISMA URL (ej. http://127.0.0.1:8765/...). " +
         "Si abres los HTML con doble clic (file://), cada pagina tiene su propio almacenamiento y el reset NO se ve en el portal. " +
         "Use abrir-con-servidor-local.bat y entre desde el navegador.";
+      renderMaestroVacationSaldoDebugInfo(opId);
     });
   }
 }
