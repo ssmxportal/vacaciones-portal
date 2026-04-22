@@ -20,6 +20,17 @@ try {
       firebase.initializeApp(firebaseConfig);
     }
     db = firebase.firestore();
+    try {
+      db.settings({
+        experimentalAutoDetectLongPolling: true,
+      });
+    } catch (eLongPoll) {
+      try {
+        db.settings({ experimentalForceLongPolling: true });
+      } catch (e2) {
+        console.warn("[Firestore] settings long-poll:", e2);
+      }
+    }
     window.db = db;
     window.__firebaseStatus = "ok";
     console.log("[Firebase] inicializado OK");
@@ -1918,14 +1929,24 @@ function syncPortalRequestFlowUI(operatorId) {
   const algunAdminDecidio = operatorHasAnyAdminPermisoDecision(opId);
   const hasSaved = operatorHasValidSavedRequestInStorage(opId);
 
-  if (algunAdminDecidio && hasSaved) {
+  // Safari / iPhone: a veces no hay `vacaciones_last_saved_*` pero sí permiso en nube;
+  // la UI post-decisión debe activarse con cualquier decisión de admin, no solo si hay borrador local.
+  if (algunAdminDecidio) {
     placePortalRequestCardsHost();
     host.style.display = "flex";
+    let builtLatestHtml = "";
     if (inlineWrap) {
-      inlineWrap.innerHTML = buildAdminRequestHistoryItemsHtml(opId, {
-        onlyLatest: true,
-        omitPdfButton: true,
-      });
+      builtLatestHtml =
+        buildAdminRequestHistoryItemsHtml(opId, {
+          onlyLatest: true,
+          omitPdfButton: true,
+        }) || "";
+      inlineWrap.innerHTML =
+        builtLatestHtml ||
+        "<p style='margin:0;color:#000000;font-size:0.92rem;line-height:1.45;padding:8px 0;'>Solicitud en curso. Revisa «Ver historial de solicitudes» más abajo para el detalle completo.</p>";
+    }
+    if (db && (!hasSaved || !builtLatestHtml)) {
+      refreshPortalHistoryFromFirestore(opId);
     }
     document.body.classList.add("portal-final-decision-mode");
     const sFlow = withComputedEstatusFinal(getPermisoStatus(opId));
@@ -2408,46 +2429,65 @@ function restartAdminPermisoEstadoLiveSync() {
   window.__adminPermisoEstadoSyncOpId = opId;
 
   whenFirebaseAuthReady()
-    .then(function () {
+    .then(function (user) {
       if (!db || !isAdminHtmlPage()) return;
       if (window.__adminPermisoEstadoSyncOpId !== opId) return;
-      const ref = db.collection("permisoEstado").doc(opId);
-      window.__adminPermisoEstadoUnsub = ref.onSnapshot(
-        function (snap) {
-          if (!isAdminHtmlPage()) return;
-          if (
-            !state.filtered ||
-            state.filtered.length !== 1 ||
-            String(state.filtered[0].id) !== opId
-          ) {
-            return;
-          }
-          if (!snap.exists) return;
-          const changed = mergePermisoEstadoDocIntoLocalStorage(
-            opId,
-            snap.data() || {}
-          );
-          if (!changed) return;
-          broadcastPermisoStatusChanged(opId);
-          syncAdminRequestHistoryEstados(opId);
-          refreshPortalPermisoStatusUI(opId);
-          updateEstatusPermisoActionButtonsState();
-          refreshAdminNotificationList();
-          try {
-            maybeRenderAdminRequestHistory();
-          } catch (e) {
-            /* ignore */
-          }
-          renderAdminSavedRequestSummary();
-        },
-        function (err) {
-          console.warn("[Firestore] permisoEstado snapshot admin:", err);
-        }
-      );
+      if (!user) {
+        window.setTimeout(function () {
+          whenFirebaseAuthReady().then(function (u2) {
+            if (!db || !isAdminHtmlPage()) return;
+            if (window.__adminPermisoEstadoSyncOpId !== opId) return;
+            if (!u2) return;
+            wireAdminPermisoEstadoOnSnapshot(opId);
+          });
+        }, 900);
+        return;
+      }
+      wireAdminPermisoEstadoOnSnapshot(opId);
     })
     .catch(function (err) {
       console.warn("[Firestore] permisoEstado escuchar:", err);
     });
+}
+
+function wireAdminPermisoEstadoOnSnapshot(opId) {
+  if (!db || !isAdminHtmlPage()) return;
+  if (window.__adminPermisoEstadoSyncOpId !== opId) return;
+  const ref = db.collection("permisoEstado").doc(opId);
+  window.__adminPermisoEstadoUnsub = ref.onSnapshot(
+    function (snap) {
+      if (!isAdminHtmlPage()) return;
+      if (
+        !state.filtered ||
+        state.filtered.length !== 1 ||
+        String(state.filtered[0].id) !== opId
+      ) {
+        return;
+      }
+      if (!snap.exists) return;
+      const changed = mergePermisoEstadoDocIntoLocalStorage(
+        opId,
+        snap.data() || {}
+      );
+      if (changed) {
+        broadcastPermisoStatusChanged(opId);
+        syncAdminRequestHistoryEstados(opId);
+      }
+      refreshPortalPermisoStatusUI(opId);
+      updateEstatusPermisoActionButtonsState();
+      refreshAdminNotificationList();
+      try {
+        maybeRenderAdminRequestHistory();
+      } catch (e) {
+        /* ignore */
+      }
+      renderAdminSavedRequestSummary();
+    },
+    function (err) {
+      console.warn("[Firestore] permisoEstado snapshot admin:", err);
+    }
+  );
+  refreshPermisoStatusFromFirestoreForOperator(opId);
 }
 
 function stopPortalPermisoEstadoLiveSync() {
@@ -2482,41 +2522,60 @@ function restartPortalPermisoEstadoLiveSync(opId) {
   window.__portalPermisoEstadoSyncOpId = id;
 
   whenFirebaseAuthReady()
-    .then(function () {
+    .then(function (user) {
       if (!db || !isPortalHtmlPage()) return;
       if (window.__portalPermisoEstadoSyncOpId !== id) return;
-      const ref = db.collection("permisoEstado").doc(id);
-      window.__portalPermisoEstadoUnsub = ref.onSnapshot(
-        function (snap) {
-          if (!isPortalHtmlPage()) return;
-          const curOid = (
-            window.sessionStorage.getItem("vacaciones_operator_id") || ""
-          ).trim();
-          if (!curOid || curOid !== id) return;
-          if (!snap.exists) return;
-          const changed = mergePermisoEstadoDocIntoLocalStorage(
-            id,
-            snap.data() || {}
-          );
-          if (!changed) return;
-          broadcastPermisoStatusChanged(id);
-          syncAdminRequestHistoryEstados(id);
-          refreshPortalPermisoStatusUI(id);
-          updateEstatusPermisoActionButtonsState();
-          try {
-            maybeRenderPortalRequestHistory();
-          } catch (e) {
-            /* ignore */
-          }
-        },
-        function (err) {
-          console.warn("[Firestore] permisoEstado snapshot portal:", err);
-        }
-      );
+      if (!user) {
+        window.setTimeout(function () {
+          whenFirebaseAuthReady().then(function (u2) {
+            if (!db || !isPortalHtmlPage()) return;
+            if (window.__portalPermisoEstadoSyncOpId !== id) return;
+            if (!u2) return;
+            wirePortalPermisoEstadoOnSnapshot(id);
+          });
+        }, 900);
+        return;
+      }
+      wirePortalPermisoEstadoOnSnapshot(id);
     })
     .catch(function (err) {
       console.warn("[Firestore] permisoEstado escuchar portal:", err);
     });
+}
+
+function wirePortalPermisoEstadoOnSnapshot(id) {
+  if (!db || !isPortalHtmlPage()) return;
+  if (window.__portalPermisoEstadoSyncOpId !== id) return;
+  const ref = db.collection("permisoEstado").doc(id);
+  window.__portalPermisoEstadoUnsub = ref.onSnapshot(
+    function (snap) {
+      if (!isPortalHtmlPage()) return;
+      const curOid = (
+        window.sessionStorage.getItem("vacaciones_operator_id") || ""
+      ).trim();
+      if (!curOid || curOid !== id) return;
+      if (!snap.exists) return;
+      const changed = mergePermisoEstadoDocIntoLocalStorage(
+        id,
+        snap.data() || {}
+      );
+      if (changed) {
+        broadcastPermisoStatusChanged(id);
+        syncAdminRequestHistoryEstados(id);
+      }
+      refreshPortalPermisoStatusUI(id);
+      updateEstatusPermisoActionButtonsState();
+      try {
+        maybeRenderPortalRequestHistory();
+      } catch (e) {
+        /* ignore */
+      }
+    },
+    function (err) {
+      console.warn("[Firestore] permisoEstado snapshot portal:", err);
+    }
+  );
+  refreshPermisoStatusFromFirestoreForOperator(id);
 }
 
 /** Prioriza sessionStorage: debe coincidir con las claves que usa admin (ID del operador). */
