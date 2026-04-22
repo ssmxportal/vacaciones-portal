@@ -729,6 +729,59 @@ function refreshAdminPendingRequestsMirrorFromFirestore() {
 }
 
 /**
+ * portal.html multi-dispositivo (p. ej. iPhone): si localStorage falla o queda vacío,
+ * rehidrata `vacaciones_last_saved_*` y session de bloqueo desde la solicitud pendiente en Firestore.
+ * @returns {Promise<boolean>} true si se escribió un payload distinto al que había en localStorage.
+ */
+function refreshPortalPendingLockMirrorFromFirestore(opId) {
+  const id = String(opId || "").trim();
+  if (!id || id === "global" || !db) return Promise.resolve(false);
+  if (!isPortalHtmlPage()) return Promise.resolve(false);
+  return whenFirebaseAuthReady()
+    .then(function () {
+      if (!db) return null;
+      return db
+        .collection("solicitudes")
+        .where("operatorId", "==", id)
+        .where("status", "==", "pendiente")
+        .get();
+    })
+    .then(function (qs) {
+      if (!qs || !qs.docs || !qs.docs.length) return false;
+      let best = null;
+      let bestTs = -Infinity;
+      for (let i = 0; i < qs.docs.length; i++) {
+        const docSnap = qs.docs[i];
+        const e = firestoreDocToHistoryEntry(docSnap);
+        const ts = e && e.ts ? Number(e.ts) : 0;
+        if (ts >= bestTs) {
+          bestTs = ts;
+          best = e;
+        }
+      }
+      if (!best || !best.payload || typeof best.payload !== "object") return false;
+      const payload = best.payload;
+      const json = JSON.stringify(payload);
+      const modeKey = `vacaciones_last_saved_locked_mode_${id}`;
+      const payKey = `vacaciones_last_saved_payload_${id}`;
+      const prevPay = window.localStorage.getItem(payKey);
+      try {
+        window.localStorage.setItem(modeKey, "1");
+        window.localStorage.setItem(payKey, json);
+      } catch (e) {
+        /* ignore */
+      }
+      window.sessionStorage.setItem(`vacaciones_locked_mode_${id}`, "1");
+      window.sessionStorage.setItem(`vacaciones_locked_payload_${id}`, json);
+      return prevPay !== json;
+    })
+    .catch(function (err) {
+      console.warn("[Firestore] mirror bloqueo portal:", err);
+      return false;
+    });
+}
+
+/**
  * maestroop/admin util: borra en Firestore solo la colección `solicitudes` del operador.
  * No toca `operatorVacationSaldo` (saldo de días consumidos); son datos independientes.
  * @returns {Promise<{deletedCount: number, skipped: boolean}>}
@@ -2037,6 +2090,7 @@ function setPermisoStatusField(operatorId, roleKey, value) {
   );
   broadcastPermisoStatusChanged(operatorId);
   syncAdminRequestHistoryEstados(String(operatorId));
+  pushPermisoStatusToFirestore(operatorId);
   const fin = normalizePermisoRowValue(s.estatusFinal);
   if (fin === "aprobado" || fin === "rechazado") {
     syncOperatorLatestSolicitudFirestoreStatus(String(operatorId), fin);
@@ -2055,6 +2109,160 @@ function clearPermisoStatusStorage(operatorId) {
   refreshPortalPermisoStatusUI(id);
   updateEstatusPermisoActionButtonsState();
   if (isAdminHtmlPage()) refreshAdminNotificationList();
+  whenFirebaseAuthReady()
+    .then(function () {
+      if (!db) return;
+      return db.collection("permisoEstado").doc(id).delete();
+    })
+    .catch(function (err) {
+      console.warn("[Firestore] permisoEstado delete:", err);
+    });
+}
+
+/**
+ * Varias sesiones admin / iPhone: el estatus por fila vive también en Firestore.
+ */
+function mergePermisoEstadoDocIntoLocalStorage(operatorId, data) {
+  const id = String(operatorId || "").trim();
+  if (!id || !data || typeof data !== "object") return false;
+  const cur = getPermisoStatus(id);
+  const next = { ...cur };
+  let touched = false;
+  ["supervisor", "gerente", "rh"].forEach(function (k) {
+    if (Object.prototype.hasOwnProperty.call(data, k) && data[k] != null) {
+      next[k] = data[k];
+      touched = true;
+    }
+  });
+  if (!touched) return false;
+  const merged = withComputedEstatusFinal(next);
+  const nextJson = JSON.stringify(merged);
+  const prevJson = JSON.stringify(withComputedEstatusFinal(cur));
+  if (nextJson === prevJson) return false;
+  window.localStorage.setItem(permisoStatusStorageKey(id), nextJson);
+  return true;
+}
+
+function pushPermisoStatusToFirestore(operatorId) {
+  const id = String(operatorId || "").trim();
+  if (!id || !db) return Promise.resolve();
+  const s = withComputedEstatusFinal(getPermisoStatus(id));
+  const payload = {
+    supervisor: s.supervisor,
+    gerente: s.gerente,
+    rh: s.rh,
+    updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+  };
+  return whenFirebaseAuthReady()
+    .then(function () {
+      if (!db) return;
+      return db.collection("permisoEstado").doc(id).set(payload, { merge: true });
+    })
+    .catch(function (err) {
+      console.warn("[Firestore] permisoEstado escritura:", err);
+    });
+}
+
+function refreshPermisoStatusFromFirestoreForOperator(opId) {
+  const id = String(opId || "").trim();
+  if (!id || !db) return Promise.resolve(false);
+  return whenFirebaseAuthReady()
+    .then(function () {
+      if (!db) return null;
+      return db.collection("permisoEstado").doc(id).get();
+    })
+    .then(function (snap) {
+      if (!snap || !snap.exists) return false;
+      const changed = mergePermisoEstadoDocIntoLocalStorage(id, snap.data() || {});
+      if (!changed) return false;
+      broadcastPermisoStatusChanged(id);
+      syncAdminRequestHistoryEstados(id);
+      refreshPortalPermisoStatusUI(id);
+      updateEstatusPermisoActionButtonsState();
+      if (isAdminHtmlPage()) refreshAdminNotificationList();
+      return true;
+    })
+    .catch(function (err) {
+      console.warn("[Firestore] permisoEstado lectura:", err);
+      return false;
+    });
+}
+
+function refreshPermisoEstadoMirrorForAdminVisibleOperators() {
+  if (!isAdminHtmlPage() || !db) return Promise.resolve(false);
+  const ids = new Set();
+  try {
+    const mirrored = JSON.parse(
+      String(window.localStorage.getItem(ADMIN_FS_PENDING_MIRROR_KEY) || "[]")
+    );
+    if (Array.isArray(mirrored)) {
+      mirrored.forEach(function (x) {
+        const oid = String(x || "").trim();
+        if (oid) ids.add(oid);
+      });
+    }
+  } catch (e) {
+    /* ignore */
+  }
+  if (state.filtered && state.filtered.length === 1 && state.filtered[0].id) {
+    ids.add(String(state.filtered[0].id));
+  }
+  const list = Array.from(ids);
+  if (!list.length) return Promise.resolve(false);
+  return whenFirebaseAuthReady()
+    .then(function () {
+      if (!db) return null;
+      return Promise.all(
+        list.map(function (id) {
+          return db
+            .collection("permisoEstado")
+            .doc(id)
+            .get()
+            .then(function (snap) {
+              return { id: id, snap: snap };
+            });
+        })
+      );
+    })
+    .then(function (pairs) {
+      if (!pairs) return false;
+      let any = false;
+      for (let i = 0; i < pairs.length; i++) {
+        const p = pairs[i];
+        const sid = p.id;
+        const snap = p.snap;
+        if (!snap || !snap.exists) continue;
+        if (mergePermisoEstadoDocIntoLocalStorage(sid, snap.data() || {})) {
+          any = true;
+        }
+      }
+      if (any) {
+        list.forEach(function (oid) {
+          syncAdminRequestHistoryEstados(oid);
+        });
+        if (state.filtered && state.filtered.length === 1) {
+          refreshPortalPermisoStatusUI(String(state.filtered[0].id));
+        }
+        updateEstatusPermisoActionButtonsState();
+        refreshAdminNotificationList();
+      }
+      return any;
+    })
+    .catch(function (err) {
+      console.warn("[Firestore] permisoEstado mirror admin:", err);
+      return false;
+    });
+}
+
+function refreshAdminFirestoreMirrorsThenUi() {
+  return refreshAdminPendingRequestsMirrorFromFirestore()
+    .then(function () {
+      return refreshPermisoEstadoMirrorForAdminVisibleOperators();
+    })
+    .then(function () {
+      refreshAdminNotificationList();
+      renderAdminSavedRequestSummary();
+    });
 }
 
 /** Prioriza sessionStorage: debe coincidir con las claves que usa admin (ID del operador). */
@@ -7812,17 +8020,11 @@ function init() {
     setupAdminRequestHistoryToggle();
     setupAdminHistorialFirestoreScopeControls();
     setupAdminNotificationCenter();
-    refreshAdminPendingRequestsMirrorFromFirestore().then(function () {
-      refreshAdminNotificationList();
-      renderAdminSavedRequestSummary();
-    });
+    refreshAdminFirestoreMirrorsThenUi();
     if (!window.__adminFsPendingMirrorFocusBound) {
       window.__adminFsPendingMirrorFocusBound = true;
       const refreshAdminMirrorNow = function () {
-        refreshAdminPendingRequestsMirrorFromFirestore().then(function () {
-          refreshAdminNotificationList();
-          renderAdminSavedRequestSummary();
-        });
+        refreshAdminFirestoreMirrorsThenUi();
       };
       document.addEventListener("visibilitychange", function () {
         if (document.visibilityState !== "visible") return;
@@ -7838,10 +8040,7 @@ function init() {
     if (!window.__adminFsPendingMirrorTimer) {
       window.__adminFsPendingMirrorTimer = window.setInterval(function () {
         if (document.hidden) return;
-        refreshAdminPendingRequestsMirrorFromFirestore().then(function () {
-          refreshAdminNotificationList();
-          renderAdminSavedRequestSummary();
-        });
+        refreshAdminFirestoreMirrorsThenUi();
       }, 12000);
     }
   } else if (role === "local") {
@@ -7931,31 +8130,55 @@ function init() {
         if (document.visibilityState !== "visible") return;
         const oid = window.sessionStorage.getItem("vacaciones_operator_id");
         if (oid) {
+          refreshPermisoStatusFromFirestoreForOperator(String(oid).trim());
           refreshPortalPermisoStatusUI(oid);
           runPortalVacationSaldoFirestoreReconcile(oid);
           portalPollLocalVacationSaldoIfChanged();
           renderPortalVacationSaldoDebugInfo(oid);
+          if (!document.body.classList.contains("locked-mode")) {
+            refreshPortalPendingLockMirrorFromFirestore(String(oid).trim()).then(
+              function (ch) {
+                if (ch) window.location.reload();
+              }
+            );
+          }
         }
       });
       window.addEventListener("focus", function () {
         const oid = window.sessionStorage.getItem("vacaciones_operator_id");
         if (oid) {
+          refreshPermisoStatusFromFirestoreForOperator(String(oid).trim());
           refreshPortalPermisoStatusUI(oid);
           runPortalVacationSaldoFirestoreReconcile(oid);
           portalPollLocalVacationSaldoIfChanged();
           renderPortalVacationSaldoDebugInfo(oid);
+          if (!document.body.classList.contains("locked-mode")) {
+            refreshPortalPendingLockMirrorFromFirestore(String(oid).trim()).then(
+              function (ch) {
+                if (ch) window.location.reload();
+              }
+            );
+          }
         }
       });
 
       window.addEventListener("pageshow", function (ev) {
         const oid = window.sessionStorage.getItem("vacaciones_operator_id");
         if (oid) {
+          refreshPermisoStatusFromFirestoreForOperator(String(oid).trim());
           refreshPortalPermisoStatusUI(oid);
           if (ev.persisted) {
             __portalSaldoPollLastSaldo = undefined;
           }
           runPortalVacationSaldoFirestoreReconcile(oid);
           portalPollLocalVacationSaldoIfChanged();
+          if (!document.body.classList.contains("locked-mode")) {
+            refreshPortalPendingLockMirrorFromFirestore(String(oid).trim()).then(
+              function (ch) {
+                if (ch) window.location.reload();
+              }
+            );
+          }
         }
       });
 
@@ -7979,6 +8202,22 @@ function init() {
           startPortalVacationSaldoFirestoreLiveSync(oid);
         }
       }, 15000);
+
+      if (!window.__portalPermisoFsTimer) {
+        window.__portalPermisoFsTimer = window.setInterval(function () {
+          if (document.hidden) return;
+          const oid = (
+            window.sessionStorage.getItem("vacaciones_operator_id") || ""
+          ).trim();
+          if (!oid) return;
+          refreshPermisoStatusFromFirestoreForOperator(oid);
+          if (!document.body.classList.contains("locked-mode")) {
+            refreshPortalPendingLockMirrorFromFirestore(oid).then(function (ch) {
+              if (ch) window.location.reload();
+            });
+          }
+        }, 12000);
+      }
     }
 
     // USUARIO LOCAL: sólo puede ver su propia información; motivo como selector
@@ -8110,23 +8349,55 @@ function init() {
     // localStorage es compartido entre pestañas; sessionStorage no. Si el maestro hace RESET
     // en otra pestaña, aquí desaparece local pero esta pestaña puede seguir con session "locked".
     // Sin copia persistida válida, limpiamos session para alinear con el reset.
-    const persistentLockedModeFlag = window.localStorage.getItem(lockedModeLocalKey);
-    const persistentPayloadRaw = window.localStorage.getItem(lockedPayloadLocalKey);
-    const hasValidPersistentLock =
+    let persistentLockedModeFlag = window.localStorage.getItem(lockedModeLocalKey);
+    let persistentPayloadRaw = window.localStorage.getItem(lockedPayloadLocalKey);
+    let hasValidPersistentLock =
       persistentLockedModeFlag === "1" &&
       typeof persistentPayloadRaw === "string" &&
       persistentPayloadRaw.trim() !== "";
 
+    // Safari / iPhone: a veces localStorage no persiste; si la sesión ya tiene bloqueo, rellenar local.
     if (!hasValidPersistentLock) {
-      window.sessionStorage.removeItem(lockedModeSessionKey);
-      window.sessionStorage.removeItem(lockedPayloadSessionKey);
-      window.sessionStorage.removeItem(lockedRequiredSessionKey);
-      if (operatorScopeId !== "global") {
-        reconcileHistoryArchivadaWhenSavedSolicitudMissing(operatorScopeId);
+      const sessModeEarly = window.sessionStorage.getItem(lockedModeSessionKey);
+      const sessPayEarly = window.sessionStorage.getItem(lockedPayloadSessionKey);
+      if (
+        sessModeEarly === "1" &&
+        typeof sessPayEarly === "string" &&
+        sessPayEarly.trim() !== ""
+      ) {
         try {
-          maybeRenderPortalRequestHistory();
+          window.localStorage.setItem(lockedModeLocalKey, "1");
+          window.localStorage.setItem(lockedPayloadLocalKey, sessPayEarly);
         } catch (e) {
           /* ignore */
+        }
+        persistentLockedModeFlag = window.localStorage.getItem(lockedModeLocalKey);
+        persistentPayloadRaw = window.localStorage.getItem(lockedPayloadLocalKey);
+        hasValidPersistentLock =
+          persistentLockedModeFlag === "1" &&
+          typeof persistentPayloadRaw === "string" &&
+          persistentPayloadRaw.trim() !== "";
+      }
+    }
+
+    if (!hasValidPersistentLock) {
+      const sessModeCheck = window.sessionStorage.getItem(lockedModeSessionKey);
+      const sessPayCheck = window.sessionStorage.getItem(lockedPayloadSessionKey);
+      const hasValidSessionLockOnly =
+        sessModeCheck === "1" &&
+        typeof sessPayCheck === "string" &&
+        sessPayCheck.trim() !== "";
+      if (!hasValidSessionLockOnly) {
+        window.sessionStorage.removeItem(lockedModeSessionKey);
+        window.sessionStorage.removeItem(lockedPayloadSessionKey);
+        window.sessionStorage.removeItem(lockedRequiredSessionKey);
+        if (operatorScopeId !== "global") {
+          reconcileHistoryArchivadaWhenSavedSolicitudMissing(operatorScopeId);
+          try {
+            maybeRenderPortalRequestHistory();
+          } catch (e) {
+            /* ignore */
+          }
         }
       }
     }
@@ -8710,6 +8981,17 @@ function init() {
           payloadToStore,
           tipo
         ).then(function (folio) {
+          const oidFs = String(operatorScopeId);
+          const modeOk =
+            window.localStorage.getItem(lockedModeLocalKey) === "1";
+          const payOk = window.localStorage.getItem(lockedPayloadLocalKey);
+          if (!modeOk || !payOk) {
+            refreshPortalPendingLockMirrorFromFirestore(oidFs).then(function (
+              applied
+            ) {
+              if (applied) window.location.reload();
+            });
+          }
           if (!folio) return;
           try {
             const oid = String(operatorScopeId);
@@ -8980,6 +9262,21 @@ function init() {
       const el = document.getElementById(id);
       if (el) portalSyncAnioDisplay(el);
     });
+
+    if (
+      role === "local" &&
+      operatorScopeId &&
+      operatorScopeId !== "global" &&
+      !document.body.classList.contains("locked-mode")
+    ) {
+      whenFirebaseAuthReady()
+        .then(function () {
+          return refreshPortalPendingLockMirrorFromFirestore(operatorScopeId);
+        })
+        .then(function (changed) {
+          if (changed) window.location.reload();
+        });
+    }
 
     function applyFechasPlaceholderClass(sel) {
       if (sel) sel.classList.toggle("fecha-select-placeholder", sel.value === "");
