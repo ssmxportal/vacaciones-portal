@@ -2334,6 +2334,87 @@ function refreshAdminFirestoreMirrorsThenUi() {
     });
 }
 
+function stopAdminPermisoEstadoLiveSync() {
+  if (window.__adminPermisoEstadoUnsub) {
+    try {
+      window.__adminPermisoEstadoUnsub();
+    } catch (e) {
+      /* ignore */
+    }
+    window.__adminPermisoEstadoUnsub = null;
+  }
+  window.__adminPermisoEstadoSyncOpId = "";
+}
+
+/**
+ * admin.html: cuando un operador está seleccionado, escucha `permisoEstado` en Firestore
+ * para que otra sesión (p. ej. PC) al aceptar/rechazar actualice el celular al instante.
+ */
+function restartAdminPermisoEstadoLiveSync() {
+  if (!isAdminHtmlPage() || !db) {
+    stopAdminPermisoEstadoLiveSync();
+    return;
+  }
+  const role =
+    state.currentRole || window.sessionStorage.getItem("vacaciones_role");
+  if (role !== "admin" && role !== "maestro") {
+    stopAdminPermisoEstadoLiveSync();
+    return;
+  }
+  let opId = "";
+  if (state.filtered && state.filtered.length === 1 && state.filtered[0].id) {
+    opId = String(state.filtered[0].id).trim();
+  }
+  if (!opId) {
+    stopAdminPermisoEstadoLiveSync();
+    return;
+  }
+  if (
+    window.__adminPermisoEstadoSyncOpId === opId &&
+    window.__adminPermisoEstadoUnsub
+  ) {
+    return;
+  }
+  stopAdminPermisoEstadoLiveSync();
+  window.__adminPermisoEstadoSyncOpId = opId;
+
+  whenFirebaseAuthReady()
+    .then(function () {
+      if (!db || !isAdminHtmlPage()) return;
+      if (window.__adminPermisoEstadoSyncOpId !== opId) return;
+      const ref = db.collection("permisoEstado").doc(opId);
+      window.__adminPermisoEstadoUnsub = ref.onSnapshot(
+        function (snap) {
+          if (!isAdminHtmlPage()) return;
+          if (
+            !state.filtered ||
+            state.filtered.length !== 1 ||
+            String(state.filtered[0].id) !== opId
+          ) {
+            return;
+          }
+          if (!snap.exists) return;
+          const changed = mergePermisoEstadoDocIntoLocalStorage(
+            opId,
+            snap.data() || {}
+          );
+          if (!changed) return;
+          broadcastPermisoStatusChanged(opId);
+          syncAdminRequestHistoryEstados(opId);
+          refreshPortalPermisoStatusUI(opId);
+          updateEstatusPermisoActionButtonsState();
+          refreshAdminNotificationList();
+        },
+        function (err) {
+          console.warn("[Firestore] permisoEstado snapshot admin:", err);
+        }
+      );
+    })
+    .catch(function (err) {
+      console.warn("[Firestore] permisoEstado escuchar:", err);
+    });
+}
+
 /** Prioriza sessionStorage: debe coincidir con las claves que usa admin (ID del operador). */
 function resolvePortalOperatorScopeId() {
   const fromSession = (
@@ -7271,6 +7352,7 @@ function renderAdminSavedRequestSummary() {
     content.innerHTML = "<p style='margin:0;'>Sin solicitud guardada para este operador.</p>";
     syncAdminHtmlSavedRequestActionButtons();
     updateEstatusPermisoActionButtonsState();
+    refreshPortalPermisoStatusUI(opId);
     return;
   }
 
@@ -7385,8 +7467,12 @@ function renderAdminSavedRequestSummary() {
   `;
   syncAdminHtmlSavedRequestActionButtons();
   updateEstatusPermisoActionButtonsState();
+  refreshPortalPermisoStatusUI(opId);
   } finally {
-    if (isAdminHtmlPage()) refreshAdminNotificationList();
+    if (isAdminHtmlPage()) {
+      restartAdminPermisoEstadoLiveSync();
+      refreshAdminNotificationList();
+    }
   }
 }
 
