@@ -2189,6 +2189,24 @@ function clearPermisoStatusStorage(operatorId) {
 }
 
 /**
+ * Valor de fila (supervisor/gerente/rh) leído de Firestore; ignora Timestamps u objetos raros (iOS).
+ */
+function readFirestorePermisoRoleValue(raw) {
+  if (raw === undefined || raw === null) return null;
+  if (typeof raw === "string") {
+    const t = raw.trim();
+    if (!t) return null;
+    return normalizePermisoRowValue(t);
+  }
+  if (typeof raw === "object" && raw && typeof raw.toMillis === "function") {
+    return null;
+  }
+  const s = String(raw).trim();
+  if (!s || s === "[object Object]") return null;
+  return normalizePermisoRowValue(s);
+}
+
+/**
  * Varias sesiones admin / iPhone: el estatus por fila vive también en Firestore.
  */
 function mergePermisoEstadoDocIntoLocalStorage(operatorId, data) {
@@ -2198,8 +2216,14 @@ function mergePermisoEstadoDocIntoLocalStorage(operatorId, data) {
   const next = { ...cur };
   let touched = false;
   ["supervisor", "gerente", "rh"].forEach(function (k) {
-    if (Object.prototype.hasOwnProperty.call(data, k) && data[k] != null) {
-      next[k] = data[k];
+    if (!Object.prototype.hasOwnProperty.call(data, k)) return;
+    const parsed = readFirestorePermisoRoleValue(data[k]);
+    if (parsed == null) return;
+    const prevN = normalizePermisoRowValue(
+      String(next[k] != null ? next[k] : "")
+    );
+    if (prevN !== parsed) {
+      next[k] = parsed;
       touched = true;
     }
   });
@@ -2208,7 +2232,12 @@ function mergePermisoEstadoDocIntoLocalStorage(operatorId, data) {
   const nextJson = JSON.stringify(merged);
   const prevJson = JSON.stringify(withComputedEstatusFinal(cur));
   if (nextJson === prevJson) return false;
-  window.localStorage.setItem(permisoStatusStorageKey(id), nextJson);
+  try {
+    window.localStorage.setItem(permisoStatusStorageKey(id), nextJson);
+  } catch (e) {
+    console.warn("[permiso] localStorage:", e);
+    return false;
+  }
   return true;
 }
 
@@ -2404,6 +2433,12 @@ function restartAdminPermisoEstadoLiveSync() {
           refreshPortalPermisoStatusUI(opId);
           updateEstatusPermisoActionButtonsState();
           refreshAdminNotificationList();
+          try {
+            maybeRenderAdminRequestHistory();
+          } catch (e) {
+            /* ignore */
+          }
+          renderAdminSavedRequestSummary();
         },
         function (err) {
           console.warn("[Firestore] permisoEstado snapshot admin:", err);
@@ -2412,6 +2447,75 @@ function restartAdminPermisoEstadoLiveSync() {
     })
     .catch(function (err) {
       console.warn("[Firestore] permisoEstado escuchar:", err);
+    });
+}
+
+function stopPortalPermisoEstadoLiveSync() {
+  if (window.__portalPermisoEstadoUnsub) {
+    try {
+      window.__portalPermisoEstadoUnsub();
+    } catch (e) {
+      /* ignore */
+    }
+    window.__portalPermisoEstadoUnsub = null;
+  }
+  window.__portalPermisoEstadoSyncOpId = "";
+}
+
+/**
+ * portal.html: escucha `permisoEstado` para que al aprobar/rechazar desde admin (p. ej. en PC)
+ * el iPhone actualice al instante el estatus, oculte «Modificar cambios» y muestre el recuadro tipo historial.
+ */
+function restartPortalPermisoEstadoLiveSync(opId) {
+  const id = String(opId || "").trim();
+  if (!id || !db || !isPortalHtmlPage()) {
+    stopPortalPermisoEstadoLiveSync();
+    return;
+  }
+  if (
+    window.__portalPermisoEstadoSyncOpId === id &&
+    window.__portalPermisoEstadoUnsub
+  ) {
+    return;
+  }
+  stopPortalPermisoEstadoLiveSync();
+  window.__portalPermisoEstadoSyncOpId = id;
+
+  whenFirebaseAuthReady()
+    .then(function () {
+      if (!db || !isPortalHtmlPage()) return;
+      if (window.__portalPermisoEstadoSyncOpId !== id) return;
+      const ref = db.collection("permisoEstado").doc(id);
+      window.__portalPermisoEstadoUnsub = ref.onSnapshot(
+        function (snap) {
+          if (!isPortalHtmlPage()) return;
+          const curOid = (
+            window.sessionStorage.getItem("vacaciones_operator_id") || ""
+          ).trim();
+          if (!curOid || curOid !== id) return;
+          if (!snap.exists) return;
+          const changed = mergePermisoEstadoDocIntoLocalStorage(
+            id,
+            snap.data() || {}
+          );
+          if (!changed) return;
+          broadcastPermisoStatusChanged(id);
+          syncAdminRequestHistoryEstados(id);
+          refreshPortalPermisoStatusUI(id);
+          updateEstatusPermisoActionButtonsState();
+          try {
+            maybeRenderPortalRequestHistory();
+          } catch (e) {
+            /* ignore */
+          }
+        },
+        function (err) {
+          console.warn("[Firestore] permisoEstado snapshot portal:", err);
+        }
+      );
+    })
+    .catch(function (err) {
+      console.warn("[Firestore] permisoEstado escuchar portal:", err);
     });
 }
 
@@ -8206,6 +8310,7 @@ function init() {
       runPortalVacationSaldoFirestoreReconcile(localOperatorId);
       startPortalVacationSaldoFirestoreLiveSync(localOperatorId);
       renderPortalVacationSaldoDebugInfo(localOperatorId);
+      restartPortalPermisoEstadoLiveSync(localOperatorId);
     }
 
     // Enlazar primero sync entre pestañas / sondeo: si más abajo falla JSON.parse u otro paso,
