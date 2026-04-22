@@ -95,6 +95,63 @@ function buildSolicitudReadableFolio(operatorId) {
   return `SOL-${String(operatorId)}-${yyyy}${mm}${dd}-${hh}${min}${sec}-${rand}`;
 }
 
+function archiveOtherPendienteSolicitudesForOperator(opId, keepFolio) {
+  const id = String(opId || "").trim();
+  const keep = String(keepFolio || "").trim();
+  if (!id || !keep || !db) return Promise.resolve(0);
+  return whenFirebaseAuthReady()
+    .then(function () {
+      if (!db) return null;
+      return db
+        .collection("solicitudes")
+        .where("operatorId", "==", id)
+        .where("status", "==", "pendiente")
+        .get();
+    })
+    .then(function (qs) {
+      if (!qs || !qs.docs || !qs.docs.length) return 0;
+      const toUpdate = qs.docs.filter(function (docSnap) {
+        const d = docSnap.data() || {};
+        const f =
+          d.folio != null ? String(d.folio).trim() : String(docSnap.id || "");
+        return f !== keep;
+      });
+      if (!toUpdate.length) return 0;
+      let chain = Promise.resolve();
+      toUpdate.forEach(function (docSnap) {
+        chain = chain.then(function () {
+          return docSnap.ref.set(
+            {
+              status: "archivada",
+              statusUpdatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+            },
+            { merge: true }
+          );
+        });
+      });
+      return chain.then(function () {
+        try {
+          if (
+            window.__firestoreHistorialByOperator &&
+            window.__firestoreHistorialByOperator[id]
+          ) {
+            delete window.__firestoreHistorialByOperator[id];
+          }
+          if (Array.isArray(window.__firestoreHistorialAll)) {
+            window.__firestoreHistorialAll = null;
+          }
+        } catch (e2) {
+          /* ignore */
+        }
+        return toUpdate.length;
+      });
+    })
+    .catch(function (err) {
+      console.warn("[Firestore] archivar solicitudes pendientes previas:", err);
+      return 0;
+    });
+}
+
 function backupPortalRequestToFirestore(opId, payload, tipo) {
   if (!db) return Promise.resolve(null);
   const operatorId = String(opId || "").trim();
@@ -156,7 +213,11 @@ function backupPortalRequestToFirestore(opId, payload, tipo) {
           ) {
             refreshPortalHistoryFromFirestore(operatorId);
           }
-          return folio;
+          return archiveOtherPendienteSolicitudesForOperator(operatorId, folio).then(
+            function () {
+              return folio;
+            }
+          );
         });
     })
     .catch(function (err) {
@@ -737,6 +798,9 @@ function refreshPortalPendingLockMirrorFromFirestore(opId) {
   const id = String(opId || "").trim();
   if (!id || id === "global" || !db) return Promise.resolve(false);
   if (!isPortalHtmlPage()) return Promise.resolve(false);
+  if (hasPortalModificarCambiosActiveForAdminLock(id)) {
+    return Promise.resolve(false);
+  }
   return whenFirebaseAuthReady()
     .then(function () {
       if (!db) return null;
@@ -765,15 +829,20 @@ function refreshPortalPendingLockMirrorFromFirestore(opId) {
       const modeKey = `vacaciones_last_saved_locked_mode_${id}`;
       const payKey = `vacaciones_last_saved_payload_${id}`;
       const prevPay = window.localStorage.getItem(payKey);
+      if (prevPay === json) {
+        return false;
+      }
       try {
         window.localStorage.setItem(modeKey, "1");
         window.localStorage.setItem(payKey, json);
       } catch (e) {
         /* ignore */
       }
-      window.sessionStorage.setItem(`vacaciones_locked_mode_${id}`, "1");
-      window.sessionStorage.setItem(`vacaciones_locked_payload_${id}`, json);
-      return prevPay !== json;
+      if (document.body.classList.contains("locked-mode")) {
+        window.sessionStorage.setItem(`vacaciones_locked_mode_${id}`, "1");
+        window.sessionStorage.setItem(`vacaciones_locked_payload_${id}`, json);
+      }
+      return true;
     })
     .catch(function (err) {
       console.warn("[Firestore] mirror bloqueo portal:", err);
