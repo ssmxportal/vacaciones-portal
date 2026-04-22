@@ -660,6 +660,74 @@ function refreshAdminHistorialFromFirestoreAndRender() {
     });
 }
 
+const ADMIN_FS_PENDING_MIRROR_KEY = "vacaciones_admin_fs_pending_mirror_ops";
+
+/**
+ * Admin multi-dispositivo: replica en localStorage las solicitudes pendientes de Firestore
+ * para que la UI existente (tarjeta, notificaciones, botones) funcione igual en iPhone/PC.
+ */
+function refreshAdminPendingRequestsMirrorFromFirestore() {
+  if (!isAdminHtmlPage() || !db) return Promise.resolve(false);
+  return whenFirebaseAuthReady()
+    .then(function () {
+      if (!db) return null;
+      return db.collection("solicitudes").where("status", "==", "pendiente").get();
+    })
+    .then(function (qs) {
+      if (!qs || !qs.docs) return false;
+      const byOperator = Object.create(null);
+      for (let i = 0; i < qs.docs.length; i++) {
+        const docSnap = qs.docs[i];
+        const e = firestoreDocToHistoryEntry(docSnap);
+        const opId = e && e.operatorId ? String(e.operatorId).trim() : "";
+        if (!opId) continue;
+        const prev = byOperator[opId];
+        const ts = e && e.ts ? Number(e.ts) : 0;
+        const prevTs = prev && prev.ts ? Number(prev.ts) : 0;
+        if (!prev || ts >= prevTs) {
+          byOperator[opId] = { ts: ts, payload: e && e.payload ? e.payload : null };
+        }
+      }
+
+      let prevMirrored = [];
+      try {
+        prevMirrored = JSON.parse(
+          String(window.localStorage.getItem(ADMIN_FS_PENDING_MIRROR_KEY) || "[]")
+        );
+        if (!Array.isArray(prevMirrored)) prevMirrored = [];
+      } catch (e) {
+        prevMirrored = [];
+      }
+
+      const nowMirrored = Object.keys(byOperator);
+      for (let i = 0; i < prevMirrored.length; i++) {
+        const opId = String(prevMirrored[i] || "").trim();
+        if (!opId || nowMirrored.includes(opId)) continue;
+        window.localStorage.removeItem(`vacaciones_last_saved_locked_mode_${opId}`);
+        window.localStorage.removeItem(`vacaciones_last_saved_payload_${opId}`);
+      }
+
+      for (let i = 0; i < nowMirrored.length; i++) {
+        const opId = nowMirrored[i];
+        const row = byOperator[opId];
+        const payload = row && row.payload && typeof row.payload === "object" ? row.payload : null;
+        if (!payload) continue;
+        window.localStorage.setItem(`vacaciones_last_saved_locked_mode_${opId}`, "1");
+        window.localStorage.setItem(
+          `vacaciones_last_saved_payload_${opId}`,
+          JSON.stringify(payload)
+        );
+      }
+
+      window.localStorage.setItem(ADMIN_FS_PENDING_MIRROR_KEY, JSON.stringify(nowMirrored));
+      return true;
+    })
+    .catch(function (err) {
+      console.warn("[Firestore] mirror pendientes admin:", err);
+      return false;
+    });
+}
+
 /**
  * maestroop/admin util: borra en Firestore solo la colección `solicitudes` del operador.
  * No toca `operatorVacationSaldo` (saldo de días consumidos); son datos independientes.
@@ -7744,7 +7812,38 @@ function init() {
     setupAdminRequestHistoryToggle();
     setupAdminHistorialFirestoreScopeControls();
     setupAdminNotificationCenter();
-    refreshAdminNotificationList();
+    refreshAdminPendingRequestsMirrorFromFirestore().then(function () {
+      refreshAdminNotificationList();
+      renderAdminSavedRequestSummary();
+    });
+    if (!window.__adminFsPendingMirrorFocusBound) {
+      window.__adminFsPendingMirrorFocusBound = true;
+      const refreshAdminMirrorNow = function () {
+        refreshAdminPendingRequestsMirrorFromFirestore().then(function () {
+          refreshAdminNotificationList();
+          renderAdminSavedRequestSummary();
+        });
+      };
+      document.addEventListener("visibilitychange", function () {
+        if (document.visibilityState !== "visible") return;
+        refreshAdminMirrorNow();
+      });
+      window.addEventListener("focus", function () {
+        refreshAdminMirrorNow();
+      });
+      window.addEventListener("pageshow", function () {
+        refreshAdminMirrorNow();
+      });
+    }
+    if (!window.__adminFsPendingMirrorTimer) {
+      window.__adminFsPendingMirrorTimer = window.setInterval(function () {
+        if (document.hidden) return;
+        refreshAdminPendingRequestsMirrorFromFirestore().then(function () {
+          refreshAdminNotificationList();
+          renderAdminSavedRequestSummary();
+        });
+      }, 12000);
+    }
   } else if (role === "local") {
     const localOperatorId = (
       window.sessionStorage.getItem("vacaciones_operator_id") || ""
