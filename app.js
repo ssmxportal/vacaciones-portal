@@ -22,14 +22,10 @@ try {
     db = firebase.firestore();
     try {
       db.settings({
-        experimentalAutoDetectLongPolling: true,
+        experimentalForceLongPolling: true,
       });
     } catch (eLongPoll) {
-      try {
-        db.settings({ experimentalForceLongPolling: true });
-      } catch (e2) {
-        console.warn("[Firestore] settings long-poll:", e2);
-      }
+      console.warn("[Firestore] settings long-poll:", eLongPoll);
     }
     window.db = db;
     window.__firebaseStatus = "ok";
@@ -88,6 +84,20 @@ try {
 
 function whenFirebaseAuthReady() {
   return window.__firebaseAuthReady || Promise.resolve(null);
+}
+
+/** Safari / iOS: evita quedarse con snapshot en caché sin el último permiso. */
+function getFirestoreDocPreferringServer(docRef) {
+  if (!docRef || typeof docRef.get !== "function") {
+    return Promise.resolve(null);
+  }
+  try {
+    return docRef.get({ source: "server" }).catch(function () {
+      return docRef.get();
+    });
+  } catch (e) {
+    return docRef.get();
+  }
 }
 
 /**
@@ -2288,18 +2298,21 @@ function refreshPermisoStatusFromFirestoreForOperator(opId) {
   return whenFirebaseAuthReady()
     .then(function () {
       if (!db) return null;
-      return db.collection("permisoEstado").doc(id).get();
+      return getFirestoreDocPreferringServer(
+        db.collection("permisoEstado").doc(id)
+      );
     })
     .then(function (snap) {
       if (!snap || !snap.exists) return false;
       const changed = mergePermisoEstadoDocIntoLocalStorage(id, snap.data() || {});
-      if (!changed) return false;
-      broadcastPermisoStatusChanged(id);
-      syncAdminRequestHistoryEstados(id);
+      if (changed) {
+        broadcastPermisoStatusChanged(id);
+        syncAdminRequestHistoryEstados(id);
+      }
       refreshPortalPermisoStatusUI(id);
       updateEstatusPermisoActionButtonsState();
       if (isAdminHtmlPage()) refreshAdminNotificationList();
-      return true;
+      return changed;
     })
     .catch(function (err) {
       console.warn("[Firestore] permisoEstado lectura:", err);
@@ -2333,13 +2346,11 @@ function refreshPermisoEstadoMirrorForAdminVisibleOperators() {
       if (!db) return null;
       return Promise.all(
         list.map(function (id) {
-          return db
-            .collection("permisoEstado")
-            .doc(id)
-            .get()
-            .then(function (snap) {
-              return { id: id, snap: snap };
-            });
+          return getFirestoreDocPreferringServer(
+            db.collection("permisoEstado").doc(id)
+          ).then(function (snap) {
+            return { id: id, snap: snap };
+          });
         })
       );
     })
@@ -2359,12 +2370,12 @@ function refreshPermisoEstadoMirrorForAdminVisibleOperators() {
         list.forEach(function (oid) {
           syncAdminRequestHistoryEstados(oid);
         });
-        if (state.filtered && state.filtered.length === 1) {
-          refreshPortalPermisoStatusUI(String(state.filtered[0].id));
-        }
-        updateEstatusPermisoActionButtonsState();
-        refreshAdminNotificationList();
       }
+      if (state.filtered && state.filtered.length === 1 && state.filtered[0].id) {
+        refreshPortalPermisoStatusUI(String(state.filtered[0].id));
+      }
+      updateEstatusPermisoActionButtonsState();
+      refreshAdminNotificationList();
       return any;
     })
     .catch(function (err) {
@@ -8361,6 +8372,21 @@ function init() {
         refreshAdminFirestoreMirrorsThenUi();
       }, 12000);
     }
+    if (!window.__adminPermisoServerPollTimer) {
+      window.__adminPermisoServerPollTimer = window.setInterval(function () {
+        if (document.hidden) return;
+        if (!isAdminHtmlPage() || !db) return;
+        const rolePoll =
+          state.currentRole || window.sessionStorage.getItem("vacaciones_role");
+        if (rolePoll !== "admin" && rolePoll !== "maestro") return;
+        if (!state.filtered || state.filtered.length !== 1 || !state.filtered[0].id) {
+          return;
+        }
+        const oidPoll = String(state.filtered[0].id).trim();
+        if (!oidPoll) return;
+        refreshPermisoStatusFromFirestoreForOperator(oidPoll);
+      }, 3500);
+    }
   } else if (role === "local") {
     const localOperatorId = (
       window.sessionStorage.getItem("vacaciones_operator_id") || ""
@@ -8535,7 +8561,7 @@ function init() {
               if (ch) window.location.reload();
             });
           }
-        }, 12000);
+        }, 3500);
       }
     }
 
