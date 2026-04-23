@@ -100,6 +100,20 @@ function getFirestoreDocPreferringServer(docRef) {
   }
 }
 
+/** Safari / iOS: consulta de colección/documents con preferencia al servidor. */
+function getFirestoreQueryPreferringServer(queryRef) {
+  if (!queryRef || typeof queryRef.get !== "function") {
+    return Promise.resolve(null);
+  }
+  try {
+    return queryRef.get({ source: "server" }).catch(function () {
+      return queryRef.get();
+    });
+  } catch (e) {
+    return queryRef.get();
+  }
+}
+
 /**
  * Respaldo en la nube: guarda una solicitud del portal en Firestore.
  * No reemplaza localStorage por ahora; se ejecuta en paralelo como copia central.
@@ -637,10 +651,9 @@ function refreshPortalHistoryFromFirestore(opId) {
   whenFirebaseAuthReady()
     .then(function () {
       if (!db) return;
-      return db
-        .collection("solicitudes")
-        .where("operatorId", "==", id)
-        .get();
+      return getFirestoreQueryPreferringServer(
+        db.collection("solicitudes").where("operatorId", "==", id)
+      );
     })
     .then(function (qs) {
       if (!qs || !qs.docs) return;
@@ -753,7 +766,9 @@ function refreshAdminPendingRequestsMirrorFromFirestore() {
   return whenFirebaseAuthReady()
     .then(function () {
       if (!db) return null;
-      return db.collection("solicitudes").where("status", "==", "pendiente").get();
+      return getFirestoreQueryPreferringServer(
+        db.collection("solicitudes").where("status", "==", "pendiente")
+      );
     })
     .then(function (qs) {
       if (!qs || !qs.docs) return false;
@@ -825,11 +840,12 @@ function refreshPortalPendingLockMirrorFromFirestore(opId) {
   return whenFirebaseAuthReady()
     .then(function () {
       if (!db) return null;
-      return db
-        .collection("solicitudes")
-        .where("operatorId", "==", id)
-        .where("status", "==", "pendiente")
-        .get();
+      return getFirestoreQueryPreferringServer(
+        db
+          .collection("solicitudes")
+          .where("operatorId", "==", id)
+          .where("status", "==", "pendiente")
+      );
     })
     .then(function (qs) {
       if (!qs || !qs.docs || !qs.docs.length) return false;
@@ -1762,9 +1778,17 @@ function defaultPermisoStatus() {
   };
 }
 
-/** Compatibilidad con datos guardados como "autorizado" */
+/** Normaliza variantes de estado para evitar diferencias entre navegadores. */
 function normalizePermisoRowValue(v) {
-  if (v === "autorizado") return "aprobado";
+  if (v === undefined || v === null) return v;
+  const raw = String(v).trim().toLowerCase();
+  if (!raw) return v;
+  if (raw === "autorizado") return "aprobado";
+  if (raw === "aprobada") return "aprobado";
+  if (raw === "rechazada") return "rechazado";
+  if (raw === "aprobado" || raw === "rechazado" || raw === "pendiente") {
+    return raw;
+  }
   return v;
 }
 
@@ -1936,7 +1960,20 @@ function syncPortalRequestFlowUI(operatorId) {
 
   renderPortalRequestHistory(opId);
 
-  const algunAdminDecidio = operatorHasAnyAdminPermisoDecision(opId);
+  let algunAdminDecidio = operatorHasAnyAdminPermisoDecision(opId);
+  if (!algunAdminDecidio) {
+    const mergedHistory = resolveMergedOperatorHistoryEntries(opId);
+    if (mergedHistory && mergedHistory.length) {
+      const li = latestHistoryEntryIndexForOperator(mergedHistory, opId);
+      const latestEntry = li >= 0 ? mergedHistory[li] : mergedHistory[0];
+      const histEstado = normalizeHistorialEstadoStored(
+        latestEntry && latestEntry.estadoHistorial
+      );
+      if (histEstado === "aprobado" || histEstado === "rechazado") {
+        algunAdminDecidio = true;
+      }
+    }
+  }
   const hasSaved = operatorHasValidSavedRequestInStorage(opId);
 
   // Safari / iPhone: a veces no hay `vacaciones_last_saved_*` pero sí permiso en nube;
