@@ -359,6 +359,10 @@ function firestoreDocToHistoryEntry(docSnap) {
     tipo: d.tipo != null ? String(d.tipo) : "Solicitud",
     payload: payload,
     estadoHistorial: estadoHistorial,
+    permisoSupervisor:
+      d.permisoSupervisor != null ? String(d.permisoSupervisor) : "",
+    permisoGerente: d.permisoGerente != null ? String(d.permisoGerente) : "",
+    permisoRh: d.permisoRh != null ? String(d.permisoRh) : "",
     operatorId: operatorId,
     operatorName: operatorName,
     fromFirestore: true,
@@ -713,9 +717,25 @@ function refreshPortalHistoryFromFirestore(opId) {
     })
     .then(function (qs) {
       if (!qs || !qs.docs) return false;
-      window.__firestoreHistorialByOperator[id] = qs.docs.map(
-        firestoreDocToHistoryEntry
-      );
+      const mapped = qs.docs.map(firestoreDocToHistoryEntry);
+      window.__firestoreHistorialByOperator[id] = mapped;
+      // Si permisoEstado no está visible aún en iOS, usa espejo en la última solicitud.
+      if (qs.docs.length) {
+        const latestDoc = qs.docs.reduce(function (best, cur) {
+          if (!best) return cur;
+          const eb = firestoreDocToHistoryEntry(best);
+          const ec = firestoreDocToHistoryEntry(cur);
+          const tb = eb && eb.ts ? Number(eb.ts) : 0;
+          const tc = ec && ec.ts ? Number(ec.ts) : 0;
+          return tc >= tb ? cur : best;
+        }, null);
+        if (latestDoc && latestDoc.exists) {
+          mergePermisoMirrorFromSolicitudDocIntoLocalStorage(
+            id,
+            latestDoc.data() || {}
+          );
+        }
+      }
       maybeRenderPortalRequestHistory();
       return true;
     })
@@ -1917,6 +1937,34 @@ function operatorHasAnyAdminPermisoDecision(opId) {
   return false;
 }
 
+/** Fallback fuerte para iOS: decisión de admin tomada desde el espejo de la última solicitud remota. */
+function latestHistoryShowsAnyAdminDecision(opId) {
+  const id = String(opId || "").trim();
+  if (!id) return false;
+  const mergedHistory = resolveMergedOperatorHistoryEntries(id);
+  if (!mergedHistory || !mergedHistory.length) return false;
+  const li = latestHistoryEntryIndexForOperator(mergedHistory, id);
+  const latestEntry = li >= 0 ? mergedHistory[li] : mergedHistory[0];
+  if (!latestEntry) return false;
+  const mirrorVals = [
+    latestEntry.permisoSupervisor,
+    latestEntry.permisoGerente,
+    latestEntry.permisoRh,
+  ];
+  for (let i = 0; i < mirrorVals.length; i++) {
+    const v = normalizePermisoRowValue(
+      String(mirrorVals[i] != null ? mirrorVals[i] : "")
+        .trim()
+        .toLowerCase()
+    );
+    if (v === "aprobado" || v === "rechazado") return true;
+  }
+  const histEstado = normalizeHistorialEstadoStored(
+    latestEntry && latestEntry.estadoHistorial
+  );
+  return histEstado === "aprobado" || histEstado === "rechazado";
+}
+
 /**
  * portal.html: oculta "Modificar cambios" solo si algún admin ya aprobó/rechazó
  * para este operador; en caso contrario lo vuelve a mostrar.
@@ -2020,17 +2068,7 @@ function syncPortalRequestFlowUI(operatorId) {
 
   let algunAdminDecidio = operatorHasAnyAdminPermisoDecision(opId);
   if (!algunAdminDecidio) {
-    const mergedHistory = resolveMergedOperatorHistoryEntries(opId);
-    if (mergedHistory && mergedHistory.length) {
-      const li = latestHistoryEntryIndexForOperator(mergedHistory, opId);
-      const latestEntry = li >= 0 ? mergedHistory[li] : mergedHistory[0];
-      const histEstado = normalizeHistorialEstadoStored(
-        latestEntry && latestEntry.estadoHistorial
-      );
-      if (histEstado === "aprobado" || histEstado === "rechazado") {
-        algunAdminDecidio = true;
-      }
-    }
+    algunAdminDecidio = latestHistoryShowsAnyAdminDecision(opId);
   }
   const hasSaved = operatorHasValidSavedRequestInStorage(opId);
 
@@ -2286,6 +2324,7 @@ function setPermisoStatusField(operatorId, roleKey, value) {
   broadcastPermisoStatusChanged(operatorId);
   syncAdminRequestHistoryEstados(String(operatorId));
   pushPermisoStatusToFirestore(operatorId);
+  pushPermisoStatusMirrorToLatestSolicitudFirestore(operatorId);
   const fin = normalizePermisoRowValue(s.estatusFinal);
   if (fin === "aprobado" || fin === "rechazado") {
     syncOperatorLatestSolicitudFirestoreStatus(String(operatorId), fin);
@@ -2387,6 +2426,48 @@ function pushPermisoStatusToFirestore(operatorId) {
     });
 }
 
+/** Respaldo iOS: espejo Supervisor/Gerente/RH en la última solicitud del operador. */
+function pushPermisoStatusMirrorToLatestSolicitudFirestore(operatorId) {
+  const id = String(operatorId || "").trim();
+  if (!id || !db) return Promise.resolve(false);
+  const s = withComputedEstatusFinal(getPermisoStatus(id));
+  const payload = {
+    permisoSupervisor: s.supervisor,
+    permisoGerente: s.gerente,
+    permisoRh: s.rh,
+    permisoUpdatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+  };
+  return whenFirebaseAuthReady()
+    .then(function () {
+      if (!db) return null;
+      return pickLatestFirestoreSolicitudDocSnapForOperator(id);
+    })
+    .then(function (docSnap) {
+      if (!docSnap || !docSnap.ref) return false;
+      return docSnap.ref
+        .set(payload, { merge: true })
+        .then(function () {
+          return true;
+        })
+        .catch(function () {
+          return false;
+        });
+    })
+    .catch(function () {
+      return false;
+    });
+}
+
+function mergePermisoMirrorFromSolicitudDocIntoLocalStorage(operatorId, docData) {
+  const id = String(operatorId || "").trim();
+  if (!id || !docData || typeof docData !== "object") return false;
+  return mergePermisoEstadoDocIntoLocalStorage(id, {
+    supervisor: docData.permisoSupervisor,
+    gerente: docData.permisoGerente,
+    rh: docData.permisoRh,
+  });
+}
+
 function refreshPermisoStatusFromFirestoreForOperator(opId) {
   const id = String(opId || "").trim();
   if (!id || !db) return Promise.resolve(false);
@@ -2398,21 +2479,70 @@ function refreshPermisoStatusFromFirestoreForOperator(opId) {
       );
     })
     .then(function (snap) {
-      if (!snap || !snap.exists) return false;
-      const changed = mergePermisoEstadoDocIntoLocalStorage(id, snap.data() || {});
-      if (changed) {
-        broadcastPermisoStatusChanged(id);
-        syncAdminRequestHistoryEstados(id);
+      if (snap && snap.exists) {
+        const changed = mergePermisoEstadoDocIntoLocalStorage(id, snap.data() || {});
+        if (changed) {
+          broadcastPermisoStatusChanged(id);
+          syncAdminRequestHistoryEstados(id);
+        }
+        refreshPortalPermisoStatusUI(id);
+        updateEstatusPermisoActionButtonsState();
+        if (isAdminHtmlPage()) refreshAdminNotificationList();
+        return changed;
       }
-      refreshPortalPermisoStatusUI(id);
-      updateEstatusPermisoActionButtonsState();
-      if (isAdminHtmlPage()) refreshAdminNotificationList();
-      return changed;
+      return whenFirebaseAuthReady()
+        .then(function () {
+          if (!db) return null;
+          return pickLatestFirestoreSolicitudDocSnapForOperator(id);
+        })
+        .then(function (docSnap) {
+          if (!docSnap || !docSnap.exists) return false;
+          const changedFallback = mergePermisoMirrorFromSolicitudDocIntoLocalStorage(
+            id,
+            docSnap.data() || {}
+          );
+          if (changedFallback) {
+            broadcastPermisoStatusChanged(id);
+            syncAdminRequestHistoryEstados(id);
+          }
+          refreshPortalPermisoStatusUI(id);
+          updateEstatusPermisoActionButtonsState();
+          if (isAdminHtmlPage()) refreshAdminNotificationList();
+          return changedFallback;
+        });
     })
     .catch(function (err) {
       console.warn("[Firestore] permisoEstado lectura:", err);
       return false;
     });
+}
+
+/**
+ * Admin same-device fallback: fuerza sync server al cambiar de cuenta/pestaña
+ * sin depender del estado local anterior.
+ */
+function requestAdminPermisoServerSync(opId) {
+  if (!isAdminHtmlPage()) return;
+  const role = state.currentRole || window.sessionStorage.getItem("vacaciones_role");
+  if (role !== "admin" && role !== "maestro") return;
+  const id = String(opId || "").trim();
+  if (!id) return;
+  window.__adminPermisoServerSyncMeta =
+    window.__adminPermisoServerSyncMeta || Object.create(null);
+  const meta = window.__adminPermisoServerSyncMeta[id] || {
+    inflight: false,
+    ts: 0,
+  };
+  const now = Date.now();
+  if (meta.inflight) return;
+  if (now - Number(meta.ts || 0) < 900) return;
+  meta.inflight = true;
+  meta.ts = now;
+  window.__adminPermisoServerSyncMeta[id] = meta;
+  refreshPermisoStatusFromFirestoreForOperator(id).finally(function () {
+    const m = window.__adminPermisoServerSyncMeta[id];
+    if (m) m.inflight = false;
+  });
 }
 
 function refreshPermisoEstadoMirrorForAdminVisibleOperators() {
@@ -7656,6 +7786,8 @@ function renderAdminSavedRequestSummary() {
     return;
   }
 
+  requestAdminPermisoServerSync(opId);
+
   migrateGlobalSavedPayloadToOperatorIfNeeded(opId);
 
   const modeKey = `vacaciones_last_saved_locked_mode_${opId}`;
@@ -8144,6 +8276,9 @@ function applyFilters() {
       }
     }
     state.filtered = selected ? [selected] : [];
+    if (selected && selected.id) {
+      requestAdminPermisoServerSync(String(selected.id));
+    }
     state.selectionMessage = "";
     if (selected && shiftFilter) {
       shift = selected.turno;
@@ -8244,6 +8379,9 @@ function applyFilters() {
   }
 
   state.filtered = selected ? [selected] : [];
+  if (isAdminLike && selected && selected.id) {
+    requestAdminPermisoServerSync(String(selected.id));
+  }
 
   renderOperatorsTable();
   renderAbsencesTable();
