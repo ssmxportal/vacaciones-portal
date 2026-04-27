@@ -13,6 +13,7 @@ let db = null;
 window.__firebaseStatus = "not_initialized";
 window.__firebaseAuthReady = Promise.resolve(null);
 window.__firebaseAuthStatus = "not_started";
+window.__firebaseAuth = null;
 
 try {
   if (typeof firebase !== "undefined") {
@@ -33,6 +34,7 @@ try {
 
     if (typeof firebase.auth === "function") {
       const auth = firebase.auth();
+      window.__firebaseAuth = auth;
       window.__firebaseAuthReady = (function () {
         try {
           const cur = auth.currentUser;
@@ -83,7 +85,61 @@ try {
 }
 
 function whenFirebaseAuthReady() {
-  return window.__firebaseAuthReady || Promise.resolve(null);
+  const auth =
+    window.__firebaseAuth ||
+    (typeof firebase !== "undefined" &&
+    typeof firebase.auth === "function"
+      ? firebase.auth()
+      : null);
+  if (!auth) return Promise.resolve(null);
+
+  const current = auth.currentUser;
+  if (current) {
+    window.__firebaseAuthUid = current.uid || "";
+    window.__firebaseAuthStatus = "session_ok";
+    return Promise.resolve(current);
+  }
+
+  const base = window.__firebaseAuthReady || Promise.resolve(null);
+  return Promise.resolve(base)
+    .then(function (u) {
+      if (u) return u;
+      const live = auth.currentUser;
+      if (live) {
+        window.__firebaseAuthUid = live.uid || "";
+        window.__firebaseAuthStatus = "session_ok";
+        return live;
+      }
+      let attempts = 0;
+      function tryAnonymousSignIn() {
+        attempts += 1;
+        return auth
+          .signInAnonymously()
+          .then(function (cred) {
+            const nextUser = cred && cred.user ? cred.user : auth.currentUser;
+            window.__firebaseAuthUid = nextUser && nextUser.uid ? nextUser.uid : "";
+            window.__firebaseAuthStatus = "anonymous_ok";
+            return nextUser || null;
+          })
+          .catch(function (err) {
+            const code = err && err.code ? String(err.code) : "";
+            const msg =
+              err && err.message ? String(err.message) : String(err || "");
+            window.__firebaseAuthStatus = code ? code + ": " + msg : msg;
+            if (attempts >= 3) return null;
+            return new Promise(function (resolve) {
+              window.setTimeout(function () {
+                resolve(tryAnonymousSignIn());
+              }, 700);
+            });
+          });
+      }
+      return tryAnonymousSignIn();
+    })
+    .then(function (user) {
+      window.__firebaseAuthReady = Promise.resolve(user || null);
+      return user || null;
+    });
 }
 
 /** Safari / iOS: evita quedarse con snapshot en caché sin el último permiso. */
@@ -2614,9 +2670,7 @@ function wirePortalPermisoEstadoOnSnapshot(id) {
   window.__portalPermisoEstadoUnsub = ref.onSnapshot(
     function (snap) {
       if (!isPortalHtmlPage()) return;
-      const curOid = (
-        window.sessionStorage.getItem("vacaciones_operator_id") || ""
-      ).trim();
+      const curOid = (resolvePortalOperatorScopeId() || "").trim();
       if (!curOid || curOid !== id) return;
       if (!snap.exists) return;
       const changed = mergePermisoEstadoDocIntoLocalStorage(
@@ -2651,6 +2705,40 @@ function resolvePortalOperatorScopeId() {
   const fromState = state.currentOperatorId;
   if (fromState != null && String(fromState).trim() !== "") {
     return String(fromState).trim();
+  }
+  // Safari/iOS: sessionStorage puede vaciarse al reactivar pestaña; intentar inferir desde localStorage.
+  try {
+    const candidates = new Map();
+    for (let i = 0; i < window.localStorage.length; i++) {
+      const k = window.localStorage.key(i);
+      if (!k) continue;
+      const prefixes = [
+        "vacaciones_permiso_status_",
+        "vacaciones_last_saved_payload_",
+        "vacaciones_admin_request_history_",
+      ];
+      for (let p = 0; p < prefixes.length; p++) {
+        const pref = prefixes[p];
+        if (k.indexOf(pref) !== 0) continue;
+        const tail = String(k.slice(pref.length) || "").trim();
+        if (!tail || tail === "global" || !/^\d+$/.test(tail)) continue;
+        candidates.set(tail, (candidates.get(tail) || 0) + 1);
+      }
+    }
+    let bestId = "";
+    let bestScore = -1;
+    candidates.forEach(function (score, id) {
+      if (score > bestScore) {
+        bestScore = score;
+        bestId = id;
+      }
+    });
+    if (bestId) {
+      window.sessionStorage.setItem("vacaciones_operator_id", bestId);
+      return bestId;
+    }
+  } catch (e) {
+    /* ignore */
   }
   return "";
 }
@@ -8526,7 +8614,7 @@ function init() {
 
       document.addEventListener("visibilitychange", function () {
         if (document.visibilityState !== "visible") return;
-        const oid = window.sessionStorage.getItem("vacaciones_operator_id");
+        const oid = resolvePortalOperatorScopeId();
         if (oid) {
           refreshPermisoStatusFromFirestoreForOperator(String(oid).trim());
           refreshPortalHistoryFromFirestore(String(oid).trim()).then(function () {
@@ -8545,7 +8633,7 @@ function init() {
         }
       });
       window.addEventListener("focus", function () {
-        const oid = window.sessionStorage.getItem("vacaciones_operator_id");
+        const oid = resolvePortalOperatorScopeId();
         if (oid) {
           refreshPermisoStatusFromFirestoreForOperator(String(oid).trim());
           refreshPortalHistoryFromFirestore(String(oid).trim()).then(function () {
@@ -8565,7 +8653,7 @@ function init() {
       });
 
       window.addEventListener("pageshow", function (ev) {
-        const oid = window.sessionStorage.getItem("vacaciones_operator_id");
+        const oid = resolvePortalOperatorScopeId();
         if (oid) {
           refreshPermisoStatusFromFirestoreForOperator(String(oid).trim());
           refreshPortalHistoryFromFirestore(String(oid).trim()).then(function () {
@@ -8589,7 +8677,7 @@ function init() {
       const pollMs = 800;
       window.__portalPermisoPollTimer = window.setInterval(function () {
         if (document.hidden) return;
-        const oid = window.sessionStorage.getItem("vacaciones_operator_id");
+        const oid = resolvePortalOperatorScopeId();
         if (!oid) return;
         const j = JSON.stringify(getPermisoStatus(oid));
         if (j !== __portalPermisoStatusLastJson) {
@@ -8600,7 +8688,7 @@ function init() {
 
       window.__portalSaldoFsReconcileTimer = window.setInterval(function () {
         if (document.hidden) return;
-        const oid = window.sessionStorage.getItem("vacaciones_operator_id");
+        const oid = resolvePortalOperatorScopeId();
         if (oid) {
           runPortalVacationSaldoFirestoreReconcile(oid);
           startPortalVacationSaldoFirestoreLiveSync(oid);
@@ -8610,9 +8698,7 @@ function init() {
       if (!window.__portalPermisoFsTimer) {
         window.__portalPermisoFsTimer = window.setInterval(function () {
           if (document.hidden) return;
-          const oid = (
-            window.sessionStorage.getItem("vacaciones_operator_id") || ""
-          ).trim();
+          const oid = (resolvePortalOperatorScopeId() || "").trim();
           if (!oid) return;
           refreshPermisoStatusFromFirestoreForOperator(oid);
           refreshPortalHistoryFromFirestore(oid).then(function () {
