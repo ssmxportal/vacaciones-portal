@@ -642,13 +642,13 @@ function refreshPortalHistoryFromFirestore(opId) {
   const id = String(opId || "").trim();
   if (!db) {
     maybeRenderPortalRequestHistory();
-    return;
+    return Promise.resolve(false);
   }
   if (!id) {
     maybeRenderPortalRequestHistory();
-    return;
+    return Promise.resolve(false);
   }
-  whenFirebaseAuthReady()
+  return whenFirebaseAuthReady()
     .then(function () {
       if (!db) return;
       return getFirestoreQueryPreferringServer(
@@ -656,15 +656,17 @@ function refreshPortalHistoryFromFirestore(opId) {
       );
     })
     .then(function (qs) {
-      if (!qs || !qs.docs) return;
+      if (!qs || !qs.docs) return false;
       window.__firestoreHistorialByOperator[id] = qs.docs.map(
         firestoreDocToHistoryEntry
       );
       maybeRenderPortalRequestHistory();
+      return true;
     })
     .catch(function (err) {
       console.warn("[Firestore] historial portal:", err);
       maybeRenderPortalRequestHistory();
+      return false;
     });
 }
 
@@ -2442,6 +2444,7 @@ function stopAdminPermisoEstadoLiveSync() {
     window.__adminPermisoEstadoUnsub = null;
   }
   window.__adminPermisoEstadoSyncOpId = "";
+  window.__adminPermisoEstadoAuthRetryCount = 0;
 }
 
 /**
@@ -2475,22 +2478,28 @@ function restartAdminPermisoEstadoLiveSync() {
   }
   stopAdminPermisoEstadoLiveSync();
   window.__adminPermisoEstadoSyncOpId = opId;
+  if (typeof window.__adminPermisoEstadoAuthRetryCount !== "number") {
+    window.__adminPermisoEstadoAuthRetryCount = 0;
+  }
 
   whenFirebaseAuthReady()
     .then(function (user) {
       if (!db || !isAdminHtmlPage()) return;
       if (window.__adminPermisoEstadoSyncOpId !== opId) return;
       if (!user) {
-        window.setTimeout(function () {
-          whenFirebaseAuthReady().then(function (u2) {
+        if (window.__adminPermisoEstadoAuthRetryCount < 20) {
+          window.__adminPermisoEstadoAuthRetryCount += 1;
+          window.setTimeout(function () {
             if (!db || !isAdminHtmlPage()) return;
             if (window.__adminPermisoEstadoSyncOpId !== opId) return;
-            if (!u2) return;
-            wireAdminPermisoEstadoOnSnapshot(opId);
-          });
-        }, 900);
+            restartAdminPermisoEstadoLiveSync();
+          }, 900);
+        } else {
+          window.__adminPermisoEstadoAuthRetryCount = 0;
+        }
         return;
       }
+      window.__adminPermisoEstadoAuthRetryCount = 0;
       wireAdminPermisoEstadoOnSnapshot(opId);
     })
     .catch(function (err) {
@@ -2508,7 +2517,7 @@ function wireAdminPermisoEstadoOnSnapshot(opId) {
       if (
         !state.filtered ||
         state.filtered.length !== 1 ||
-        String(state.filtered[0].id) !== opId
+        String(state.filtered[0].id).trim() !== String(opId).trim()
       ) {
         return;
       }
@@ -2548,6 +2557,7 @@ function stopPortalPermisoEstadoLiveSync() {
     window.__portalPermisoEstadoUnsub = null;
   }
   window.__portalPermisoEstadoSyncOpId = "";
+  window.__portalPermisoEstadoAuthRetryCount = 0;
 }
 
 /**
@@ -2568,22 +2578,28 @@ function restartPortalPermisoEstadoLiveSync(opId) {
   }
   stopPortalPermisoEstadoLiveSync();
   window.__portalPermisoEstadoSyncOpId = id;
+  if (typeof window.__portalPermisoEstadoAuthRetryCount !== "number") {
+    window.__portalPermisoEstadoAuthRetryCount = 0;
+  }
 
   whenFirebaseAuthReady()
     .then(function (user) {
       if (!db || !isPortalHtmlPage()) return;
       if (window.__portalPermisoEstadoSyncOpId !== id) return;
       if (!user) {
-        window.setTimeout(function () {
-          whenFirebaseAuthReady().then(function (u2) {
+        if (window.__portalPermisoEstadoAuthRetryCount < 20) {
+          window.__portalPermisoEstadoAuthRetryCount += 1;
+          window.setTimeout(function () {
             if (!db || !isPortalHtmlPage()) return;
             if (window.__portalPermisoEstadoSyncOpId !== id) return;
-            if (!u2) return;
-            wirePortalPermisoEstadoOnSnapshot(id);
-          });
-        }, 900);
+            restartPortalPermisoEstadoLiveSync(id);
+          }, 900);
+        } else {
+          window.__portalPermisoEstadoAuthRetryCount = 0;
+        }
         return;
       }
+      window.__portalPermisoEstadoAuthRetryCount = 0;
       wirePortalPermisoEstadoOnSnapshot(id);
     })
     .catch(function (err) {
@@ -8513,7 +8529,9 @@ function init() {
         const oid = window.sessionStorage.getItem("vacaciones_operator_id");
         if (oid) {
           refreshPermisoStatusFromFirestoreForOperator(String(oid).trim());
-          refreshPortalPermisoStatusUI(oid);
+          refreshPortalHistoryFromFirestore(String(oid).trim()).then(function () {
+            refreshPortalPermisoStatusUI(oid);
+          });
           runPortalVacationSaldoFirestoreReconcile(oid);
           portalPollLocalVacationSaldoIfChanged();
           renderPortalVacationSaldoDebugInfo(oid);
@@ -8530,7 +8548,9 @@ function init() {
         const oid = window.sessionStorage.getItem("vacaciones_operator_id");
         if (oid) {
           refreshPermisoStatusFromFirestoreForOperator(String(oid).trim());
-          refreshPortalPermisoStatusUI(oid);
+          refreshPortalHistoryFromFirestore(String(oid).trim()).then(function () {
+            refreshPortalPermisoStatusUI(oid);
+          });
           runPortalVacationSaldoFirestoreReconcile(oid);
           portalPollLocalVacationSaldoIfChanged();
           renderPortalVacationSaldoDebugInfo(oid);
@@ -8548,7 +8568,9 @@ function init() {
         const oid = window.sessionStorage.getItem("vacaciones_operator_id");
         if (oid) {
           refreshPermisoStatusFromFirestoreForOperator(String(oid).trim());
-          refreshPortalPermisoStatusUI(oid);
+          refreshPortalHistoryFromFirestore(String(oid).trim()).then(function () {
+            refreshPortalPermisoStatusUI(oid);
+          });
           if (ev.persisted) {
             __portalSaldoPollLastSaldo = undefined;
           }
@@ -8593,6 +8615,9 @@ function init() {
           ).trim();
           if (!oid) return;
           refreshPermisoStatusFromFirestoreForOperator(oid);
+          refreshPortalHistoryFromFirestore(oid).then(function () {
+            refreshPortalPermisoStatusUI(oid);
+          });
           if (!document.body.classList.contains("locked-mode")) {
             refreshPortalPendingLockMirrorFromFirestore(oid).then(function (ch) {
               if (ch) window.location.reload();
