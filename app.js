@@ -2088,11 +2088,13 @@ function syncPortalRequestFlowUI(operatorId) {
 
   renderPortalRequestHistory(opId);
 
+  const hasSaved = operatorHasValidSavedRequestInStorage(opId);
   let algunAdminDecidio = operatorHasAnyAdminPermisoDecision(opId);
-  if (!algunAdminDecidio) {
+  // El historial puede seguir mostrando «Aprobado» en la última fila cerrada; sin borrador activo
+  // (p. ej. tras «Generar nueva solicitud») no debe reactivar el recuadro tipo historial.
+  if (!algunAdminDecidio && hasSaved) {
     algunAdminDecidio = latestHistoryShowsAnyAdminDecision(opId);
   }
-  const hasSaved = operatorHasValidSavedRequestInStorage(opId);
 
   // Safari / iPhone: a veces no hay `vacaciones_last_saved_*` pero sí permiso en nube;
   // la UI post-decisión debe activarse con cualquier decisión de admin, no solo si hay borrador local.
