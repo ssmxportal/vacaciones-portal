@@ -976,6 +976,148 @@ function refreshAdminPendingRequestsMirrorFromFirestore() {
     });
 }
 
+function invalidateFirestoreHistorialCachesForOperator(opId) {
+  const id = String(opId || "").trim();
+  if (!id) return;
+  try {
+    if (
+      window.__firestoreHistorialByOperator &&
+      window.__firestoreHistorialByOperator[id]
+    ) {
+      delete window.__firestoreHistorialByOperator[id];
+    }
+    if (Array.isArray(window.__firestoreHistorialAll)) {
+      window.__firestoreHistorialAll = null;
+    }
+  } catch (e) {
+    /* ignore */
+  }
+}
+
+/** Maestro / reset: quita permiso en nube para que el portal no lo rehidrante tras limpiar local. */
+function deletePermisoEstadoDocForOperatorInFirestore(opId) {
+  const id = String(opId || "").trim();
+  if (!id || !db) return Promise.resolve(false);
+  return whenFirebaseAuthReady()
+    .then(function () {
+      if (!db) return false;
+      return db.collection("permisoEstado").doc(id).delete();
+    })
+    .then(function () {
+      return true;
+    })
+    .catch(function (e) {
+      console.warn("[Firestore] permisoEstado delete (reset maestro):", e);
+      return false;
+    });
+}
+
+/**
+ * Marca como archivada en Firestore todas las solicitudes `pendiente` del operador
+ * (evita que quede otra pendiente y el portal siga en locked-mode).
+ * @returns {Promise<number>} cantidad de documentos actualizados
+ */
+function archiveAllOperatorPendienteSolicitudesInFirestore(opId) {
+  const idStr = String(opId || "").trim();
+  const idNum = parseInt(idStr, 10);
+  if (!idStr || !db) return Promise.resolve(0);
+  const norm = normalizeSolicitudFirestoreStatusForDoc("archivada");
+  return whenFirebaseAuthReady()
+    .then(function () {
+      if (!db) return null;
+      return db
+        .collection("solicitudes")
+        .where("operatorId", "==", idStr)
+        .where("status", "==", "pendiente")
+        .get();
+    })
+    .then(function (qs) {
+      if (qs === null) return null;
+      if ((!qs || qs.empty) && Number.isFinite(idNum) && String(idNum) === idStr) {
+        return db
+          .collection("solicitudes")
+          .where("operatorId", "==", idNum)
+          .where("status", "==", "pendiente")
+          .get();
+      }
+      return qs;
+    })
+    .then(function (qs) {
+      if (!qs || qs.empty) {
+        invalidateFirestoreHistorialCachesForOperator(idStr);
+        return 0;
+      }
+      const docs = qs.docs.slice();
+      let updated = 0;
+      let chain = Promise.resolve();
+      const ts = firebase.firestore.FieldValue.serverTimestamp();
+      while (docs.length) {
+        const chunk = docs.splice(0, 400);
+        chain = chain.then(function () {
+          const batch = db.batch();
+          chunk.forEach(function (docSnap) {
+            batch.set(
+              docSnap.ref,
+              {
+                status: norm,
+                statusUpdatedAt: ts,
+              },
+              { merge: true }
+            );
+          });
+          return batch.commit().then(function () {
+            updated += chunk.length;
+          });
+        });
+      }
+      return chain.then(function () {
+        invalidateFirestoreHistorialCachesForOperator(idStr);
+        return updated;
+      });
+    })
+    .catch(function (err) {
+      console.warn("[Firestore] archivar solicitudes pendientes:", err);
+      return 0;
+    });
+}
+
+/**
+ * portal.html: en nube ya no hay solicitud pendiente pero aquí sigue borrador/bloqueo local
+ * (p. ej. reset maestro en otro dispositivo) → limpiar para volver a Motivo de ausencia.
+ * @returns {boolean} true si se borró estado local de borrador/bloqueo.
+ */
+function clearPortalLockWhenNoPendingSolicitudInFirestore(opId) {
+  const id = String(opId || "").trim();
+  if (!id || id === "global" || !isPortalHtmlPage()) return false;
+  const hadDraft =
+    operatorHasValidSavedRequestInStorage(id) ||
+    window.sessionStorage.getItem(`vacaciones_locked_mode_${id}`) === "1";
+  if (!hadDraft) return false;
+
+  const lockedModeSessionKey = `vacaciones_locked_mode_${id}`;
+  const lockedPayloadSessionKey = `vacaciones_locked_payload_${id}`;
+  const lockedRequiredSessionKey = `vacaciones_locked_required_ids_${id}`;
+  const lockedModeLocalKey = `vacaciones_last_saved_locked_mode_${id}`;
+  const lockedPayloadLocalKey = `vacaciones_last_saved_payload_${id}`;
+
+  window.sessionStorage.removeItem(lockedModeSessionKey);
+  window.sessionStorage.removeItem(lockedPayloadSessionKey);
+  window.sessionStorage.removeItem(lockedRequiredSessionKey);
+  window.localStorage.removeItem(lockedModeLocalKey);
+  window.localStorage.removeItem(lockedPayloadLocalKey);
+  window.localStorage.removeItem(permisoStatusStorageKey(id));
+  clearPortalFinalDecisionModalAck(id);
+  clearAdminSavedDecisionLocked(id);
+  clearAdminModifEstadoSession(id);
+  invalidateFirestoreHistorialCachesForOperator(id);
+  try {
+    broadcastPermisoStatusChanged(id);
+  } catch (e) {
+    /* ignore */
+  }
+  return true;
+}
+
 /**
  * portal.html multi-dispositivo (p. ej. iPhone): si localStorage falla o queda vacío,
  * rehidrata `vacaciones_last_saved_*` y session de bloqueo desde la solicitud pendiente en Firestore.
@@ -999,7 +1141,22 @@ function refreshPortalPendingLockMirrorFromFirestore(opId) {
       );
     })
     .then(function (qs) {
-      if (!qs || !qs.docs || !qs.docs.length) return false;
+      if (qs && qs.docs && qs.docs.length) return qs;
+      const idNum = parseInt(id, 10);
+      if (Number.isFinite(idNum) && String(idNum) === id) {
+        return getFirestoreQueryPreferringServer(
+          db
+            .collection("solicitudes")
+            .where("operatorId", "==", idNum)
+            .where("status", "==", "pendiente")
+        );
+      }
+      return qs;
+    })
+    .then(function (qs) {
+      if (!qs || !qs.docs || !qs.docs.length) {
+        return clearPortalLockWhenNoPendingSolicitudInFirestore(id);
+      }
       let best = null;
       let bestTs = -Infinity;
       for (let i = 0; i < qs.docs.length; i++) {
@@ -9182,13 +9339,11 @@ function init() {
           runPortalVacationSaldoFirestoreReconcile(oid);
           portalPollLocalVacationSaldoIfChanged();
           renderPortalVacationSaldoDebugInfo(oid);
-          if (!document.body.classList.contains("locked-mode")) {
-            refreshPortalPendingLockMirrorFromFirestore(String(oid).trim()).then(
-              function (ch) {
-                if (ch) window.location.reload();
-              }
-            );
-          }
+          refreshPortalPendingLockMirrorFromFirestore(String(oid).trim()).then(
+            function (ch) {
+              if (ch) window.location.reload();
+            }
+          );
         }
       });
       window.addEventListener("focus", function () {
@@ -9201,13 +9356,11 @@ function init() {
           runPortalVacationSaldoFirestoreReconcile(oid);
           portalPollLocalVacationSaldoIfChanged();
           renderPortalVacationSaldoDebugInfo(oid);
-          if (!document.body.classList.contains("locked-mode")) {
-            refreshPortalPendingLockMirrorFromFirestore(String(oid).trim()).then(
-              function (ch) {
-                if (ch) window.location.reload();
-              }
-            );
-          }
+          refreshPortalPendingLockMirrorFromFirestore(String(oid).trim()).then(
+            function (ch) {
+              if (ch) window.location.reload();
+            }
+          );
         }
       });
 
@@ -9223,13 +9376,11 @@ function init() {
           }
           runPortalVacationSaldoFirestoreReconcile(oid);
           portalPollLocalVacationSaldoIfChanged();
-          if (!document.body.classList.contains("locked-mode")) {
-            refreshPortalPendingLockMirrorFromFirestore(String(oid).trim()).then(
-              function (ch) {
-                if (ch) window.location.reload();
-              }
-            );
-          }
+          refreshPortalPendingLockMirrorFromFirestore(String(oid).trim()).then(
+            function (ch) {
+              if (ch) window.location.reload();
+            }
+          );
         }
       });
 
@@ -9263,11 +9414,9 @@ function init() {
           refreshPortalHistoryFromFirestore(oid).then(function () {
             refreshPortalPermisoStatusUI(oid);
           });
-          if (!document.body.classList.contains("locked-mode")) {
-            refreshPortalPendingLockMirrorFromFirestore(oid).then(function (ch) {
-              if (ch) window.location.reload();
-            });
-          }
+          refreshPortalPendingLockMirrorFromFirestore(oid).then(function (ch) {
+            if (ch) window.location.reload();
+          });
         }, 3500);
       }
     }
@@ -10315,12 +10464,7 @@ function init() {
       if (el) portalSyncAnioDisplay(el);
     });
 
-    if (
-      role === "local" &&
-      operatorScopeId &&
-      operatorScopeId !== "global" &&
-      !document.body.classList.contains("locked-mode")
-    ) {
+    if (role === "local" && operatorScopeId && operatorScopeId !== "global") {
       whenFirebaseAuthReady()
         .then(function () {
           return refreshPortalPendingLockMirrorFromFirestore(operatorScopeId);
@@ -10786,30 +10930,38 @@ function setupMaestroOp() {
   }
 
   function resetSavedRequestByOperatorId(operatorId) {
-    if (operatorId == null || operatorId === "") return false;
+    if (operatorId == null || operatorId === "") {
+      return Promise.resolve(false);
+    }
     operatorId = String(operatorId).trim();
 
-    migrateGlobalSavedPayloadToOperatorIfNeeded(operatorId);
-    migrateGlobalAdminRequestHistoryToOperatorIfNeeded(operatorId);
-    const sPre = withComputedEstatusFinal(getPermisoStatus(operatorId));
-    const finalPre = normalizePermisoRowValue(sPre.estatusFinal);
-    const wasOpenCycle =
-      finalPre !== "aprobado" && finalPre !== "rechazado";
+    return archiveAllOperatorPendienteSolicitudesInFirestore(operatorId)
+      .then(function () {
+        return deletePermisoEstadoDocForOperatorInFirestore(operatorId);
+      })
+      .then(function () {
+        migrateGlobalSavedPayloadToOperatorIfNeeded(operatorId);
+        migrateGlobalAdminRequestHistoryToOperatorIfNeeded(operatorId);
+        const sPre = withComputedEstatusFinal(getPermisoStatus(operatorId));
+        const finalPre = normalizePermisoRowValue(sPre.estatusFinal);
+        const wasOpenCycle =
+          finalPre !== "aprobado" && finalPre !== "rechazado";
 
-    // Pendiente en curso → historial «Archivada» (na); ya cerrada por los 3 admins →
-    // resetPortalOperatorForNewSolicitud fija aprobado/rechazado como «Generar nueva solicitud».
-    const archivada = archivePendienteSolicitudAsNaForMaestroReset(operatorId);
-    resetPortalOperatorForNewSolicitud(operatorId);
-    let finalized = false;
-    if (wasOpenCycle) {
-      finalized = finalizeMaestroResetHistory(operatorId);
-    }
-    try {
-      broadcastPermisoStatusChanged(operatorId);
-    } catch (e) {
-      /* ignore */
-    }
-    return archivada || finalized;
+        // Pendiente en curso → historial «Archivada» (na); ya cerrada por los 3 admins →
+        // resetPortalOperatorForNewSolicitud fija aprobado/rechazado como «Generar nueva solicitud».
+        const archivada = archivePendienteSolicitudAsNaForMaestroReset(operatorId);
+        resetPortalOperatorForNewSolicitud(operatorId);
+        let finalized = false;
+        if (wasOpenCycle) {
+          finalized = finalizeMaestroResetHistory(operatorId);
+        }
+        try {
+          broadcastPermisoStatusChanged(operatorId);
+        } catch (e) {
+          /* ignore */
+        }
+        return archivada || finalized;
+      });
   }
 
   function doSearch() {
@@ -10865,11 +11017,13 @@ function setupMaestroOp() {
       return;
     }
     const id = String(selectedOperator.id).trim();
-    const archivada = resetSavedRequestByOperatorId(id);
-    statusEl.textContent = archivada
-      ? `Operador ${id}: solicitud pendiente en curso archivada en el historial (Archivada). Borrador reiniciado.`
-      : `Operador ${id}: reiniciado. (Sin borrador pendiente que archivar, o solicitud ya cerrada por admins.)`;
-    renderMaestroVacationSaldoDebugInfo(id);
+    statusEl.textContent = `Operador ${id}: aplicando reset en Firestore…`;
+    resetSavedRequestByOperatorId(id).then(function (archivada) {
+      statusEl.textContent = archivada
+        ? `Operador ${id}: solicitud pendiente en curso archivada en el historial (Archivada). Borrador reiniciado.`
+        : `Operador ${id}: reiniciado. (Sin borrador pendiente que archivar, o solicitud ya cerrada por admins.)`;
+      renderMaestroVacationSaldoDebugInfo(id);
+    });
   });
 
   clearHistoryBtn.addEventListener("click", () => {
