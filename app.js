@@ -1225,6 +1225,114 @@ function syncVacationDaysConsumedToFirestore(opId, consumedDays) {
     });
 }
 
+/**
+ * Epoch en `operatorVacationSaldo`: solo sube con «Restablecer días» (maestro).
+ * Así el portal en otro dispositivo aplica consumo=0 aunque localStorage tuviera un valor mayor
+ * (antes `prev > remote` volvía a subir el consumo y anulaba el reset).
+ */
+function vacationSaldoRemoteEpochStorageKey(opId) {
+  if (!opId) return "";
+  return "vacaciones_saldo_remote_epoch_" + String(opId).trim();
+}
+
+function getVacationSaldoRemoteEpochApplied(opId) {
+  const k = vacationSaldoRemoteEpochStorageKey(opId);
+  if (!k) return 0;
+  try {
+    const n = parseInt(String(window.localStorage.getItem(k) || "0"), 10);
+    return Number.isFinite(n) && n > 0 ? n : 0;
+  } catch (e) {
+    return 0;
+  }
+}
+
+function setVacationSaldoRemoteEpochApplied(opId, epoch) {
+  const k = vacationSaldoRemoteEpochStorageKey(opId);
+  if (!k) return;
+  try {
+    window.localStorage.setItem(k, String(epoch));
+  } catch (e) {
+    /* ignore */
+  }
+}
+
+function parseSaldoResetEpochFromFirestoreData(data) {
+  if (!data || typeof data !== "object") return 0;
+  const n = parseInt(
+    String(data.saldoResetEpoch != null ? data.saldoResetEpoch : "0"),
+    10
+  );
+  return Number.isFinite(n) && n > 0 ? n : 0;
+}
+
+/**
+ * Si Firestore trae un `saldoResetEpoch` mayor que el aplicado localmente, aplica `consumedDays`
+ * remoto y marca UI (sin tocar permiso / píldoras).
+ * @returns {boolean} true si hubo cambio persistido local.
+ */
+function applyFirestoreSaldoResetEpochIfNewer(opId, snapData) {
+  const id = String(opId || "").trim();
+  if (!id || !snapData || typeof snapData !== "object") return false;
+  const remoteEpoch = parseSaldoResetEpochFromFirestoreData(snapData);
+  const localEpoch = getVacationSaldoRemoteEpochApplied(id);
+  if (remoteEpoch <= localEpoch) return false;
+  const n = parseInt(
+    String(snapData.consumedDays != null ? snapData.consumedDays : "0"),
+    10
+  );
+  const remote = Number.isFinite(n) && n > 0 ? n : 0;
+  const key = vacationDaysConsumedStorageKey(id);
+  try {
+    if (remote > 0) window.localStorage.setItem(key, String(remote));
+    else window.localStorage.setItem(key, "0");
+  } catch (e) {
+    /* ignore */
+  }
+  setVacationSaldoRemoteEpochApplied(id, remoteEpoch);
+  if (remote === 0) markVacationSaldoManuallyReset(id);
+  else clearVacationSaldoManualResetMarker(id);
+  try {
+    window.localStorage.setItem(vacationSaldoNudgeStorageKey(id), String(Date.now()));
+  } catch (e) {
+    /* ignore */
+  }
+  return true;
+}
+
+/** Maestro: consumo 0 + nuevo epoch (prioridad sobre consumo local alto en otros dispositivos). */
+function syncVacationSaldoManualResetToFirestore(opId) {
+  const id = String(opId || "").trim();
+  if (!id || !db) return Promise.resolve(false);
+  return whenFirebaseAuthReady()
+    .then(function () {
+      const ref = vacationSaldoFirestoreDoc(id);
+      if (!ref) return Promise.resolve(false);
+      return ref
+        .set(
+          {
+            operatorId: id,
+            consumedDays: 0,
+            saldoResetEpoch: firebase.firestore.FieldValue.increment(1),
+            updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+          },
+          { merge: true }
+        )
+        .then(function () {
+          return ref.get();
+        })
+        .then(function (snap) {
+          if (snap && snap.exists) {
+            applyFirestoreSaldoResetEpochIfNewer(id, snap.data() || {});
+          }
+          return true;
+        });
+    })
+    .catch(function (err) {
+      console.warn("[Firestore] reset manual saldo vacaciones:", err);
+      return false;
+    });
+}
+
 function solicitudFirestoreIsApprovedStatus(statusRaw) {
   const s = String(statusRaw != null ? statusRaw : "")
     .trim()
@@ -1391,6 +1499,11 @@ function reconcileVacationDaysConsumedWithFirestore(opId) {
       }
 
       const data = snap.data() || {};
+      if (applyFirestoreSaldoResetEpochIfNewer(id, data)) {
+        return true;
+      }
+
+      const prev2 = getVacationDaysConsumed(id);
       const n = parseInt(
         String(data.consumedDays != null ? data.consumedDays : "0"),
         10
@@ -1398,16 +1511,17 @@ function reconcileVacationDaysConsumedWithFirestore(opId) {
       const remote = Number.isFinite(n) && n > 0 ? n : 0;
 
       // Doc existe con consumedDays=0: no reconstruir desde solicitudes (evita anular «Restablecer a 20»).
-      // Si local>0 y remoto=0, el remoto va atrasado o el .set aún no llegó: subir con prev>remote (incluye remoto 0).
+      // Si `saldoResetEpoch` subió, ya aplicamos consumo remoto arriba (evita que prev alto anule reset maestro).
 
       // Local por delante del remoto (p. ej. cierre recién guardado en local; Firestore aún en 0): subir.
-      if (prev > remote) {
-        return syncVacationDaysConsumedToFirestore(id, prev).then(function () {
+      if (prev2 > remote) {
+        return syncVacationDaysConsumedToFirestore(id, prev2).then(function () {
           return false;
         });
       }
 
-      if (remote === prev) return false;
+      if (remote === prev2) return false;
+      if (remote > 0) clearVacationSaldoManualResetMarker(id);
       try {
         window.localStorage.setItem(key, String(remote));
       } catch (e) {
@@ -1457,6 +1571,9 @@ function hydrateVacationConsumedFromFirestoreForLogin(opId) {
       if (snap === false) return false;
       if (snap && snap.exists) {
         const d = snap.data() || {};
+        if (applyFirestoreSaldoResetEpochIfNewer(id, d)) {
+          return true;
+        }
         const n = parseInt(
           String(d.consumedDays != null ? d.consumedDays : "0"),
           10
@@ -1620,6 +1737,10 @@ function startPortalVacationSaldoFirestoreLiveSync(opId) {
       function (snap) {
         if (!snap || !snap.exists) return;
         const data = snap.data() || {};
+        if (applyFirestoreSaldoResetEpochIfNewer(id, data)) {
+          portalRefreshLocalVacationSaldoUIForOperator(id);
+          return;
+        }
         const n = parseInt(
           String(data.consumedDays != null ? data.consumedDays : "0"),
           10
@@ -1632,6 +1753,7 @@ function startPortalVacationSaldoFirestoreLiveSync(opId) {
           return;
         }
         const key = vacationDaysConsumedStorageKey(id);
+        if (remote > 0) clearVacationSaldoManualResetMarker(id);
         if (remote === 0) {
           window.localStorage.removeItem(key);
         } else {
@@ -1696,6 +1818,7 @@ function hasVacationSaldoManualResetMarker(opId) {
 /** Días de vacaciones ya descontados del tope (tras cierre aprobado de solicitud con campo No. días). */
 function getVacationDaysConsumed(opId) {
   if (!opId) return 0;
+  if (hasVacationSaldoManualResetMarker(opId)) return 0;
   const raw = window.localStorage.getItem(vacationDaysConsumedStorageKey(opId));
   const n = parseInt(String(raw || "0"), 10);
   return Number.isFinite(n) && n > 0 ? n : 0;
@@ -1729,7 +1852,7 @@ function clearVacationDaysConsumedStorageForOperator(opId) {
     /* ignore */
   }
   broadcastVacationSaldoReset(id);
-  return syncVacationDaysConsumedToFirestore(id, 0);
+  return syncVacationSaldoManualResetToFirestore(id);
 }
 
 /** Saldo restante en portal: 20 menos días ya consumidos (tras cierres aprobados con No. días). */
@@ -1776,6 +1899,7 @@ function getPortalVacationSaldoMostradoAlEmpleado(opId) {
   if (!opId) return DIAS_VACACIONALES_BASE;
   const id = String(opId).trim();
   const base = getPortalVacationSaldoRestante(id);
+  if (hasVacationSaldoManualResetMarker(id)) return base;
   const s = withComputedEstatusFinal(getPermisoStatus(id));
   if (normalizePermisoRowValue(s.estatusFinal) !== "aprobado") return base;
   const payload = getLastSavedPayloadFromOperator(id);
