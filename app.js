@@ -2426,6 +2426,51 @@ function coalescePermisoRemoteRow(fromPermisoEstado, fromSolicitudMirror, localF
 }
 
 /**
+ * Antes de escribir en Firestore: no pisar filas de otros admins que este dispositivo aún tiene en pendiente.
+ * `serverData` = doc actual en permisoEstado; `localStatus` = estado local tras el clic (incluye la fila que cambió).
+ */
+function mergeServerPermisoDocWithLocalForWrite(serverData, localStatus) {
+  const sd = serverData && typeof serverData === "object" ? serverData : {};
+  const loc = withComputedEstatusFinal(
+    localStatus && typeof localStatus === "object" ? localStatus : defaultPermisoStatus()
+  );
+  const keys = ["supervisor", "gerente", "rh"];
+  const out = {};
+  for (let i = 0; i < keys.length; i++) {
+    const k = keys[i];
+    const vSrv = Object.prototype.hasOwnProperty.call(sd, k)
+      ? readFirestorePermisoRoleValue(sd[k])
+      : null;
+    const vLoc = readFirestorePermisoRoleValue(loc[k]);
+    out[k] = coalescePermisoRemoteRow(vSrv, vLoc, "pendiente");
+  }
+  return out;
+}
+
+/** Igual que arriba pero campos permiso* en el doc de solicitud. */
+function mergeSolicitudMirrorFieldsWithLocalForWrite(solicitudData, localStatus) {
+  const sd = solicitudData && typeof solicitudData === "object" ? solicitudData : {};
+  const loc = withComputedEstatusFinal(
+    localStatus && typeof localStatus === "object" ? localStatus : defaultPermisoStatus()
+  );
+  const pairs = [
+    { sol: "permisoSupervisor", locKey: "supervisor" },
+    { sol: "permisoGerente", locKey: "gerente" },
+    { sol: "permisoRh", locKey: "rh" },
+  ];
+  const out = {};
+  for (let i = 0; i < pairs.length; i++) {
+    const p = pairs[i];
+    const vSrv = Object.prototype.hasOwnProperty.call(sd, p.sol)
+      ? readFirestorePermisoRoleValue(sd[p.sol])
+      : null;
+    const vLoc = readFirestorePermisoRoleValue(loc[p.locKey]);
+    out[p.sol] = coalescePermisoRemoteRow(vSrv, vLoc, "pendiente");
+  }
+  return out;
+}
+
+/**
  * Una sola escritura en localStorage mezclando permisoEstado + espejo solicitud (iOS / doc parcial).
  */
 function applyFullPermisoReconciliationFromFirestore(
@@ -2556,17 +2601,54 @@ function mergePermisoEstadoDocIntoLocalStorage(operatorId, data) {
 function pushPermisoStatusToFirestore(operatorId) {
   const id = String(operatorId || "").trim();
   if (!id || !db) return Promise.resolve();
-  const s = withComputedEstatusFinal(getPermisoStatus(id));
-  const payload = {
-    supervisor: s.supervisor,
-    gerente: s.gerente,
-    rh: s.rh,
-    updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
-  };
+  const localSnapshot = withComputedEstatusFinal(getPermisoStatus(id));
   return whenFirebaseAuthReady()
     .then(function () {
-      if (!db) return;
-      return db.collection("permisoEstado").doc(id).set(payload, { merge: true });
+      if (!db) return null;
+      return getFirestoreDocPreferringServer(
+        db.collection("permisoEstado").doc(id)
+      );
+    })
+    .then(function (snap) {
+      if (!db) return null;
+      const serverData = snap && snap.exists ? snap.data() || {} : {};
+      const rows = mergeServerPermisoDocWithLocalForWrite(serverData, localSnapshot);
+      const mergedObj = withComputedEstatusFinal({
+        supervisor: rows.supervisor,
+        gerente: rows.gerente,
+        rh: rows.rh,
+      });
+      const payload = {
+        supervisor: mergedObj.supervisor,
+        gerente: mergedObj.gerente,
+        rh: mergedObj.rh,
+        updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+      };
+      return db
+        .collection("permisoEstado")
+        .doc(id)
+        .set(payload, { merge: true })
+        .then(function () {
+          try {
+            const prevJson = JSON.stringify(
+              withComputedEstatusFinal(getPermisoStatus(id))
+            );
+            const nextJson = JSON.stringify(mergedObj);
+            if (prevJson !== nextJson) {
+              window.localStorage.setItem(
+                permisoStatusStorageKey(id),
+                nextJson
+              );
+              broadcastPermisoStatusChanged(id);
+              syncAdminRequestHistoryEstados(id);
+            }
+            refreshPortalPermisoStatusUI(id);
+            updateEstatusPermisoActionButtonsState();
+            if (isAdminHtmlPage()) refreshAdminNotificationList();
+          } catch (e) {
+            /* ignore */
+          }
+        });
     })
     .catch(function (err) {
       console.warn("[Firestore] permisoEstado escritura:", err);
@@ -2577,13 +2659,7 @@ function pushPermisoStatusToFirestore(operatorId) {
 function pushPermisoStatusMirrorToLatestSolicitudFirestore(operatorId) {
   const id = String(operatorId || "").trim();
   if (!id || !db) return Promise.resolve(false);
-  const s = withComputedEstatusFinal(getPermisoStatus(id));
-  const payload = {
-    permisoSupervisor: s.supervisor,
-    permisoGerente: s.gerente,
-    permisoRh: s.rh,
-    permisoUpdatedAt: firebase.firestore.FieldValue.serverTimestamp(),
-  };
+  const localSnapshot = withComputedEstatusFinal(getPermisoStatus(id));
   return whenFirebaseAuthReady()
     .then(function () {
       if (!db) return null;
@@ -2591,6 +2667,17 @@ function pushPermisoStatusMirrorToLatestSolicitudFirestore(operatorId) {
     })
     .then(function (docSnap) {
       if (!docSnap || !docSnap.ref) return false;
+      const existing = docSnap.exists ? docSnap.data() || {} : {};
+      const mirror = mergeSolicitudMirrorFieldsWithLocalForWrite(
+        existing,
+        localSnapshot
+      );
+      const payload = {
+        permisoSupervisor: mirror.permisoSupervisor,
+        permisoGerente: mirror.permisoGerente,
+        permisoRh: mirror.permisoRh,
+        permisoUpdatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+      };
       return docSnap.ref
         .set(payload, { merge: true })
         .then(function () {
