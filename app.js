@@ -422,31 +422,9 @@ function pickLatestFirestoreSolicitudDocSnapForOperator(opId) {
     });
 }
 
-/** iOS: completa filas Supervisor/Gerente/RH desde espejo en la última solicitud (evita doc parcial en caché). */
+/** Compat: misma ruta que reconcile (permisoEstado + solicitud en un solo paso). */
 function applySolicitudPermisoMirrorFromServer(operatorId) {
-  const id = String(operatorId || "").trim();
-  if (!id || !db) return Promise.resolve(false);
-  return whenFirebaseAuthReady()
-    .then(function () {
-      if (!db) return null;
-      return getFirestoreQueryPreferringServer(
-        db.collection("solicitudes").where("operatorId", "==", id)
-      );
-    })
-    .then(function (qs) {
-      const docSnap =
-        qs && qs.docs && qs.docs.length
-          ? pickLatestSolicitudDocSnapFromDocs(qs.docs)
-          : null;
-      if (!docSnap || !docSnap.exists) return false;
-      return mergePermisoMirrorFromSolicitudDocIntoLocalStorage(
-        id,
-        docSnap.data() || {}
-      );
-    })
-    .catch(function () {
-      return false;
-    });
+  return reconcilePermisoForOperatorFromNetwork(operatorId);
 }
 
 function normalizeSolicitudFirestoreStatusForDoc(val) {
@@ -2407,12 +2385,137 @@ function readFirestorePermisoRoleValue(raw) {
     if (!t) return null;
     return normalizePermisoRowValue(t);
   }
+  if (typeof raw === "number") {
+    const t = String(raw).trim();
+    if (!t) return null;
+    return normalizePermisoRowValue(t);
+  }
   if (typeof raw === "object" && raw && typeof raw.toMillis === "function") {
     return null;
   }
   const s = String(raw).trim();
   if (!s || s === "[object Object]") return null;
   return normalizePermisoRowValue(s);
+}
+
+function permisoRemoteRowIsDecisive(val) {
+  if (val == null) return false;
+  const n = normalizePermisoRowValue(String(val));
+  return n === "aprobado" || n === "rechazado";
+}
+
+/**
+ * Une una fila desde permisoEstado y espejo en solicitud: gana aprobado/rechazado;
+ * si ambos son decisivos y distintos, manda permisoEstado.
+ */
+function coalescePermisoRemoteRow(fromPermisoEstado, fromSolicitudMirror, localFallback) {
+  const p = fromPermisoEstado != null ? fromPermisoEstado : null;
+  const m = fromSolicitudMirror != null ? fromSolicitudMirror : null;
+  const decP = permisoRemoteRowIsDecisive(p);
+  const decM = permisoRemoteRowIsDecisive(m);
+  if (decP && decM && normalizePermisoRowValue(String(p)) !== normalizePermisoRowValue(String(m))) {
+    return normalizePermisoRowValue(String(p));
+  }
+  if (decP) return normalizePermisoRowValue(String(p));
+  if (decM) return normalizePermisoRowValue(String(m));
+  if (p != null) return normalizePermisoRowValue(String(p));
+  if (m != null) return normalizePermisoRowValue(String(m));
+  return normalizePermisoRowValue(
+    String(localFallback != null ? localFallback : "pendiente")
+  );
+}
+
+/**
+ * Una sola escritura en localStorage mezclando permisoEstado + espejo solicitud (iOS / doc parcial).
+ */
+function applyFullPermisoReconciliationFromFirestore(
+  operatorId,
+  permisoEstadoData,
+  solicitudDocData
+) {
+  const id = String(operatorId || "").trim();
+  if (!id) return false;
+  const pe =
+    permisoEstadoData && typeof permisoEstadoData === "object" ? permisoEstadoData : {};
+  const sd =
+    solicitudDocData && typeof solicitudDocData === "object" ? solicitudDocData : {};
+  const cur = getPermisoStatus(id);
+  const next = { ...defaultPermisoStatus(), ...cur };
+  const rows = [
+    { k: "supervisor", sol: "permisoSupervisor" },
+    { k: "gerente", sol: "permisoGerente" },
+    { k: "rh", sol: "permisoRh" },
+  ];
+  let touched = false;
+  for (let i = 0; i < rows.length; i++) {
+    const row = rows[i];
+    const vPe = Object.prototype.hasOwnProperty.call(pe, row.k)
+      ? readFirestorePermisoRoleValue(pe[row.k])
+      : null;
+    const vSol = Object.prototype.hasOwnProperty.call(sd, row.sol)
+      ? readFirestorePermisoRoleValue(sd[row.sol])
+      : null;
+    const resolved = coalescePermisoRemoteRow(vPe, vSol, next[row.k]);
+    const prevN = normalizePermisoRowValue(
+      String(next[row.k] != null ? next[row.k] : "")
+    );
+    if (prevN !== resolved) {
+      next[row.k] = resolved;
+      touched = true;
+    }
+  }
+  if (!touched) return false;
+  const merged = withComputedEstatusFinal(next);
+  try {
+    window.localStorage.setItem(permisoStatusStorageKey(id), JSON.stringify(merged));
+  } catch (e) {
+    console.warn("[permiso] localStorage:", e);
+    return false;
+  }
+  return true;
+}
+
+function reconcilePermisoForOperatorFromNetwork(opId) {
+  const id = String(opId || "").trim();
+  if (!id || !db) return Promise.resolve(false);
+  let permisoData = {};
+  return whenFirebaseAuthReady()
+    .then(function () {
+      if (!db) return null;
+      return getFirestoreDocPreferringServer(
+        db.collection("permisoEstado").doc(id)
+      );
+    })
+    .then(function (snap) {
+      if (snap && snap.exists) permisoData = snap.data() || {};
+      return getFirestoreQueryPreferringServer(
+        db.collection("solicitudes").where("operatorId", "==", id)
+      );
+    })
+    .then(function (qs) {
+      const docSnap =
+        qs && qs.docs && qs.docs.length
+          ? pickLatestSolicitudDocSnapFromDocs(qs.docs)
+          : null;
+      const solData = docSnap && docSnap.exists ? docSnap.data() || {} : {};
+      const changed = applyFullPermisoReconciliationFromFirestore(
+        id,
+        permisoData,
+        solData
+      );
+      if (changed) {
+        broadcastPermisoStatusChanged(id);
+        syncAdminRequestHistoryEstados(id);
+      }
+      refreshPortalPermisoStatusUI(id);
+      updateEstatusPermisoActionButtonsState();
+      if (isAdminHtmlPage()) refreshAdminNotificationList();
+      return changed;
+    })
+    .catch(function (err) {
+      console.warn("[Firestore] reconcile permiso:", err);
+      return false;
+    });
 }
 
 /**
@@ -2513,39 +2616,7 @@ function mergePermisoMirrorFromSolicitudDocIntoLocalStorage(operatorId, docData)
 }
 
 function refreshPermisoStatusFromFirestoreForOperator(opId) {
-  const id = String(opId || "").trim();
-  if (!id || !db) return Promise.resolve(false);
-  let changed = false;
-  return whenFirebaseAuthReady()
-    .then(function () {
-      if (!db) return null;
-      return getFirestoreDocPreferringServer(
-        db.collection("permisoEstado").doc(id)
-      );
-    })
-    .then(function (snap) {
-      if (snap && snap.exists) {
-        if (mergePermisoEstadoDocIntoLocalStorage(id, snap.data() || {})) {
-          changed = true;
-        }
-      }
-      return applySolicitudPermisoMirrorFromServer(id);
-    })
-    .then(function (mirrorChanged) {
-      if (mirrorChanged) changed = true;
-      if (changed) {
-        broadcastPermisoStatusChanged(id);
-        syncAdminRequestHistoryEstados(id);
-      }
-      refreshPortalPermisoStatusUI(id);
-      updateEstatusPermisoActionButtonsState();
-      if (isAdminHtmlPage()) refreshAdminNotificationList();
-      return changed;
-    })
-    .catch(function (err) {
-      console.warn("[Firestore] permisoEstado lectura:", err);
-      return false;
-    });
+  return reconcilePermisoForOperatorFromNetwork(opId);
 }
 
 /**
@@ -2597,51 +2668,22 @@ function refreshPermisoEstadoMirrorForAdminVisibleOperators() {
   }
   const list = Array.from(ids);
   if (!list.length) return Promise.resolve(false);
-  return whenFirebaseAuthReady()
-    .then(function () {
-      if (!db) return null;
-      return Promise.all(
-        list.map(function (id) {
-          return getFirestoreDocPreferringServer(
-            db.collection("permisoEstado").doc(id)
-          ).then(function (snap) {
-            return { id: id, snap: snap };
-          });
-        })
-      );
+  return Promise.all(
+    list.map(function (id) {
+      return reconcilePermisoForOperatorFromNetwork(id);
     })
-    .then(function (pairs) {
-      if (!pairs) return false;
+  )
+    .then(function (flags) {
       let any = false;
-      for (let i = 0; i < pairs.length; i++) {
-        const p = pairs[i];
-        const sid = p.id;
-        const snap = p.snap;
-        if (!snap || !snap.exists) continue;
-        if (mergePermisoEstadoDocIntoLocalStorage(sid, snap.data() || {})) {
-          any = true;
-        }
+      for (let i = 0; i < flags.length; i++) {
+        if (flags[i]) any = true;
       }
-      return Promise.all(
-        list.map(function (sid) {
-          return applySolicitudPermisoMirrorFromServer(sid);
-        })
-      ).then(function (mirrorFlags) {
-        for (let m = 0; m < mirrorFlags.length; m++) {
-          if (mirrorFlags[m]) any = true;
-        }
-        if (any) {
-          list.forEach(function (oid) {
-            syncAdminRequestHistoryEstados(oid);
-          });
-        }
-        if (state.filtered && state.filtered.length === 1 && state.filtered[0].id) {
-          refreshPortalPermisoStatusUI(String(state.filtered[0].id));
-        }
-        updateEstatusPermisoActionButtonsState();
-        refreshAdminNotificationList();
-        return any;
-      });
+      if (state.filtered && state.filtered.length === 1 && state.filtered[0].id) {
+        refreshPortalPermisoStatusUI(String(state.filtered[0].id));
+      }
+      updateEstatusPermisoActionButtonsState();
+      refreshAdminNotificationList();
+      return any;
     })
     .catch(function (err) {
       console.warn("[Firestore] permisoEstado mirror admin:", err);
@@ -2738,7 +2780,7 @@ function wireAdminPermisoEstadoOnSnapshot(opId) {
   if (window.__adminPermisoEstadoSyncOpId !== opId) return;
   const ref = db.collection("permisoEstado").doc(opId);
   window.__adminPermisoEstadoUnsub = ref.onSnapshot(
-    function (snap) {
+    function () {
       if (!isAdminHtmlPage()) return;
       if (
         !state.filtered ||
@@ -2747,20 +2789,7 @@ function wireAdminPermisoEstadoOnSnapshot(opId) {
       ) {
         return;
       }
-      if (!snap.exists) return;
-      let changed = mergePermisoEstadoDocIntoLocalStorage(
-        opId,
-        snap.data() || {}
-      );
-      applySolicitudPermisoMirrorFromServer(opId).then(function (mirrorChanged) {
-        if (mirrorChanged) changed = true;
-        if (changed) {
-          broadcastPermisoStatusChanged(opId);
-          syncAdminRequestHistoryEstados(opId);
-        }
-        refreshPortalPermisoStatusUI(opId);
-        updateEstatusPermisoActionButtonsState();
-        refreshAdminNotificationList();
+      reconcilePermisoForOperatorFromNetwork(opId).then(function () {
         try {
           maybeRenderAdminRequestHistory();
         } catch (e) {
@@ -2841,23 +2870,11 @@ function wirePortalPermisoEstadoOnSnapshot(id) {
   if (window.__portalPermisoEstadoSyncOpId !== id) return;
   const ref = db.collection("permisoEstado").doc(id);
   window.__portalPermisoEstadoUnsub = ref.onSnapshot(
-    function (snap) {
+    function () {
       if (!isPortalHtmlPage()) return;
       const curOid = (resolvePortalOperatorScopeId() || "").trim();
       if (!curOid || curOid !== id) return;
-      if (!snap.exists) return;
-      let changed = mergePermisoEstadoDocIntoLocalStorage(
-        id,
-        snap.data() || {}
-      );
-      applySolicitudPermisoMirrorFromServer(id).then(function (mirrorChanged) {
-        if (mirrorChanged) changed = true;
-        if (changed) {
-          broadcastPermisoStatusChanged(id);
-          syncAdminRequestHistoryEstados(id);
-        }
-        refreshPortalPermisoStatusUI(id);
-        updateEstatusPermisoActionButtonsState();
+      reconcilePermisoForOperatorFromNetwork(id).then(function () {
         try {
           maybeRenderPortalRequestHistory();
         } catch (e) {
