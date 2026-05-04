@@ -1513,13 +1513,6 @@ function reconcileVacationDaysConsumedWithFirestore(opId) {
       // Doc existe con consumedDays=0: no reconstruir desde solicitudes (evita anular «Restablecer a 20»).
       // Si `saldoResetEpoch` subió, ya aplicamos consumo remoto arriba (evita que prev alto anule reset maestro).
 
-      // Local por delante del remoto (p. ej. cierre recién guardado en local; Firestore aún en 0): subir.
-      if (prev2 > remote) {
-        return syncVacationDaysConsumedToFirestore(id, prev2).then(function () {
-          return false;
-        });
-      }
-
       if (remote === prev2) return false;
       if (remote > 0) clearVacationSaldoManualResetMarker(id);
       try {
@@ -1748,10 +1741,6 @@ function startPortalVacationSaldoFirestoreLiveSync(opId) {
         const remote = Number.isFinite(n) && n > 0 ? n : 0;
         const prev = getVacationDaysConsumed(id);
         if (remote === prev) return;
-        if (prev > remote) {
-          syncVacationDaysConsumedToFirestore(id, prev);
-          return;
-        }
         const key = vacationDaysConsumedStorageKey(id);
         if (remote > 0) clearVacationSaldoManualResetMarker(id);
         if (remote === 0) {
