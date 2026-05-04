@@ -412,14 +412,40 @@ function pickLatestFirestoreSolicitudDocSnapForOperator(opId) {
   return whenFirebaseAuthReady()
     .then(function () {
       if (!db) return null;
-      return db
-        .collection("solicitudes")
-        .where("operatorId", "==", id)
-        .get();
+      return getFirestoreQueryPreferringServer(
+        db.collection("solicitudes").where("operatorId", "==", id)
+      );
     })
     .then(function (qs) {
       if (!qs || !qs.docs || !qs.docs.length) return null;
       return pickLatestSolicitudDocSnapFromDocs(qs.docs);
+    });
+}
+
+/** iOS: completa filas Supervisor/Gerente/RH desde espejo en la última solicitud (evita doc parcial en caché). */
+function applySolicitudPermisoMirrorFromServer(operatorId) {
+  const id = String(operatorId || "").trim();
+  if (!id || !db) return Promise.resolve(false);
+  return whenFirebaseAuthReady()
+    .then(function () {
+      if (!db) return null;
+      return getFirestoreQueryPreferringServer(
+        db.collection("solicitudes").where("operatorId", "==", id)
+      );
+    })
+    .then(function (qs) {
+      const docSnap =
+        qs && qs.docs && qs.docs.length
+          ? pickLatestSolicitudDocSnapFromDocs(qs.docs)
+          : null;
+      if (!docSnap || !docSnap.exists) return false;
+      return mergePermisoMirrorFromSolicitudDocIntoLocalStorage(
+        id,
+        docSnap.data() || {}
+      );
+    })
+    .catch(function () {
+      return false;
     });
 }
 
@@ -2489,6 +2515,7 @@ function mergePermisoMirrorFromSolicitudDocIntoLocalStorage(operatorId, docData)
 function refreshPermisoStatusFromFirestoreForOperator(opId) {
   const id = String(opId || "").trim();
   if (!id || !db) return Promise.resolve(false);
+  let changed = false;
   return whenFirebaseAuthReady()
     .then(function () {
       if (!db) return null;
@@ -2498,61 +2525,22 @@ function refreshPermisoStatusFromFirestoreForOperator(opId) {
     })
     .then(function (snap) {
       if (snap && snap.exists) {
-        let changed = mergePermisoEstadoDocIntoLocalStorage(id, snap.data() || {});
-        const hasDecisionAfterPermiso = operatorHasAnyAdminPermisoDecision(id);
-        if (!hasDecisionAfterPermiso) {
-          return whenFirebaseAuthReady()
-            .then(function () {
-              if (!db) return null;
-              return pickLatestFirestoreSolicitudDocSnapForOperator(id);
-            })
-            .then(function (docSnap) {
-              if (docSnap && docSnap.exists) {
-                const mirrorChanged = mergePermisoMirrorFromSolicitudDocIntoLocalStorage(
-                  id,
-                  docSnap.data() || {}
-                );
-                if (mirrorChanged) changed = true;
-              }
-              if (changed) {
-                broadcastPermisoStatusChanged(id);
-                syncAdminRequestHistoryEstados(id);
-              }
-              refreshPortalPermisoStatusUI(id);
-              updateEstatusPermisoActionButtonsState();
-              if (isAdminHtmlPage()) refreshAdminNotificationList();
-              return changed;
-            });
+        if (mergePermisoEstadoDocIntoLocalStorage(id, snap.data() || {})) {
+          changed = true;
         }
-        if (changed) {
-          broadcastPermisoStatusChanged(id);
-          syncAdminRequestHistoryEstados(id);
-        }
-        refreshPortalPermisoStatusUI(id);
-        updateEstatusPermisoActionButtonsState();
-        if (isAdminHtmlPage()) refreshAdminNotificationList();
-        return changed;
       }
-      return whenFirebaseAuthReady()
-        .then(function () {
-          if (!db) return null;
-          return pickLatestFirestoreSolicitudDocSnapForOperator(id);
-        })
-        .then(function (docSnap) {
-          if (!docSnap || !docSnap.exists) return false;
-          const changedFallback = mergePermisoMirrorFromSolicitudDocIntoLocalStorage(
-            id,
-            docSnap.data() || {}
-          );
-          if (changedFallback) {
-            broadcastPermisoStatusChanged(id);
-            syncAdminRequestHistoryEstados(id);
-          }
-          refreshPortalPermisoStatusUI(id);
-          updateEstatusPermisoActionButtonsState();
-          if (isAdminHtmlPage()) refreshAdminNotificationList();
-          return changedFallback;
-        });
+      return applySolicitudPermisoMirrorFromServer(id);
+    })
+    .then(function (mirrorChanged) {
+      if (mirrorChanged) changed = true;
+      if (changed) {
+        broadcastPermisoStatusChanged(id);
+        syncAdminRequestHistoryEstados(id);
+      }
+      refreshPortalPermisoStatusUI(id);
+      updateEstatusPermisoActionButtonsState();
+      if (isAdminHtmlPage()) refreshAdminNotificationList();
+      return changed;
     })
     .catch(function (err) {
       console.warn("[Firestore] permisoEstado lectura:", err);
@@ -2634,17 +2622,26 @@ function refreshPermisoEstadoMirrorForAdminVisibleOperators() {
           any = true;
         }
       }
-      if (any) {
-        list.forEach(function (oid) {
-          syncAdminRequestHistoryEstados(oid);
-        });
-      }
-      if (state.filtered && state.filtered.length === 1 && state.filtered[0].id) {
-        refreshPortalPermisoStatusUI(String(state.filtered[0].id));
-      }
-      updateEstatusPermisoActionButtonsState();
-      refreshAdminNotificationList();
-      return any;
+      return Promise.all(
+        list.map(function (sid) {
+          return applySolicitudPermisoMirrorFromServer(sid);
+        })
+      ).then(function (mirrorFlags) {
+        for (let m = 0; m < mirrorFlags.length; m++) {
+          if (mirrorFlags[m]) any = true;
+        }
+        if (any) {
+          list.forEach(function (oid) {
+            syncAdminRequestHistoryEstados(oid);
+          });
+        }
+        if (state.filtered && state.filtered.length === 1 && state.filtered[0].id) {
+          refreshPortalPermisoStatusUI(String(state.filtered[0].id));
+        }
+        updateEstatusPermisoActionButtonsState();
+        refreshAdminNotificationList();
+        return any;
+      });
     })
     .catch(function (err) {
       console.warn("[Firestore] permisoEstado mirror admin:", err);
@@ -2751,23 +2748,26 @@ function wireAdminPermisoEstadoOnSnapshot(opId) {
         return;
       }
       if (!snap.exists) return;
-      const changed = mergePermisoEstadoDocIntoLocalStorage(
+      let changed = mergePermisoEstadoDocIntoLocalStorage(
         opId,
         snap.data() || {}
       );
-      if (changed) {
-        broadcastPermisoStatusChanged(opId);
-        syncAdminRequestHistoryEstados(opId);
-      }
-      refreshPortalPermisoStatusUI(opId);
-      updateEstatusPermisoActionButtonsState();
-      refreshAdminNotificationList();
-      try {
-        maybeRenderAdminRequestHistory();
-      } catch (e) {
-        /* ignore */
-      }
-      renderAdminSavedRequestSummary();
+      applySolicitudPermisoMirrorFromServer(opId).then(function (mirrorChanged) {
+        if (mirrorChanged) changed = true;
+        if (changed) {
+          broadcastPermisoStatusChanged(opId);
+          syncAdminRequestHistoryEstados(opId);
+        }
+        refreshPortalPermisoStatusUI(opId);
+        updateEstatusPermisoActionButtonsState();
+        refreshAdminNotificationList();
+        try {
+          maybeRenderAdminRequestHistory();
+        } catch (e) {
+          /* ignore */
+        }
+        renderAdminSavedRequestSummary();
+      });
     },
     function (err) {
       console.warn("[Firestore] permisoEstado snapshot admin:", err);
@@ -2846,21 +2846,24 @@ function wirePortalPermisoEstadoOnSnapshot(id) {
       const curOid = (resolvePortalOperatorScopeId() || "").trim();
       if (!curOid || curOid !== id) return;
       if (!snap.exists) return;
-      const changed = mergePermisoEstadoDocIntoLocalStorage(
+      let changed = mergePermisoEstadoDocIntoLocalStorage(
         id,
         snap.data() || {}
       );
-      if (changed) {
-        broadcastPermisoStatusChanged(id);
-        syncAdminRequestHistoryEstados(id);
-      }
-      refreshPortalPermisoStatusUI(id);
-      updateEstatusPermisoActionButtonsState();
-      try {
-        maybeRenderPortalRequestHistory();
-      } catch (e) {
-        /* ignore */
-      }
+      applySolicitudPermisoMirrorFromServer(id).then(function (mirrorChanged) {
+        if (mirrorChanged) changed = true;
+        if (changed) {
+          broadcastPermisoStatusChanged(id);
+          syncAdminRequestHistoryEstados(id);
+        }
+        refreshPortalPermisoStatusUI(id);
+        updateEstatusPermisoActionButtonsState();
+        try {
+          maybeRenderPortalRequestHistory();
+        } catch (e) {
+          /* ignore */
+        }
+      });
     },
     function (err) {
       console.warn("[Firestore] permisoEstado snapshot portal:", err);
