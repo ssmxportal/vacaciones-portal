@@ -370,6 +370,42 @@ function firestoreDocToHistoryEntry(docSnap) {
   };
 }
 
+function getFirestoreSolicitudSortScore(docSnap) {
+  const e = firestoreDocToHistoryEntry(docSnap);
+  const ts = e && e.ts ? Number(e.ts) : 0;
+  if (ts > 0 && Number.isFinite(ts)) return ts;
+  const d = docSnap && typeof docSnap.data === "function" ? docSnap.data() || {} : {};
+  const folioRaw =
+    d && d.folio != null ? String(d.folio).trim() : String(docSnap && docSnap.id ? docSnap.id : "");
+  const m = folioRaw.match(/(\d{8})-(\d{6})/);
+  if (!m) return 0;
+  const ymd = m[1];
+  const hms = m[2];
+  const y = Number(ymd.slice(0, 4));
+  const mo = Number(ymd.slice(4, 6));
+  const da = Number(ymd.slice(6, 8));
+  const hh = Number(hms.slice(0, 2));
+  const mi = Number(hms.slice(2, 4));
+  const ss = Number(hms.slice(4, 6));
+  const ms = Date.UTC(y, mo - 1, da, hh, mi, ss);
+  return Number.isFinite(ms) ? ms : 0;
+}
+
+function pickLatestSolicitudDocSnapFromDocs(docs) {
+  if (!docs || !docs.length) return null;
+  let best = null;
+  let bestScore = -Infinity;
+  for (let i = 0; i < docs.length; i++) {
+    const cand = docs[i];
+    const score = getFirestoreSolicitudSortScore(cand);
+    if (score > bestScore) {
+      bestScore = score;
+      best = cand;
+    }
+  }
+  return best;
+}
+
 function pickLatestFirestoreSolicitudDocSnapForOperator(opId) {
   const id = String(opId || "").trim();
   if (!id || !db) return Promise.resolve(null);
@@ -383,18 +419,7 @@ function pickLatestFirestoreSolicitudDocSnapForOperator(opId) {
     })
     .then(function (qs) {
       if (!qs || !qs.docs || !qs.docs.length) return null;
-      let best = null;
-      let bestTs = -Infinity;
-      for (let i = 0; i < qs.docs.length; i++) {
-        const d = qs.docs[i];
-        const e = firestoreDocToHistoryEntry(d);
-        const t = e && e.ts ? e.ts : 0;
-        if (t > bestTs) {
-          bestTs = t;
-          best = d;
-        }
-      }
-      return best;
+      return pickLatestSolicitudDocSnapFromDocs(qs.docs);
     });
 }
 
@@ -721,14 +746,7 @@ function refreshPortalHistoryFromFirestore(opId) {
       window.__firestoreHistorialByOperator[id] = mapped;
       // Si permisoEstado no está visible aún en iOS, usa espejo en la última solicitud.
       if (qs.docs.length) {
-        const latestDoc = qs.docs.reduce(function (best, cur) {
-          if (!best) return cur;
-          const eb = firestoreDocToHistoryEntry(best);
-          const ec = firestoreDocToHistoryEntry(cur);
-          const tb = eb && eb.ts ? Number(eb.ts) : 0;
-          const tc = ec && ec.ts ? Number(ec.ts) : 0;
-          return tc >= tb ? cur : best;
-        }, null);
+        const latestDoc = pickLatestSolicitudDocSnapFromDocs(qs.docs);
         if (latestDoc && latestDoc.exists) {
           mergePermisoMirrorFromSolicitudDocIntoLocalStorage(
             id,
@@ -2480,7 +2498,32 @@ function refreshPermisoStatusFromFirestoreForOperator(opId) {
     })
     .then(function (snap) {
       if (snap && snap.exists) {
-        const changed = mergePermisoEstadoDocIntoLocalStorage(id, snap.data() || {});
+        let changed = mergePermisoEstadoDocIntoLocalStorage(id, snap.data() || {});
+        const hasDecisionAfterPermiso = operatorHasAnyAdminPermisoDecision(id);
+        if (!hasDecisionAfterPermiso) {
+          return whenFirebaseAuthReady()
+            .then(function () {
+              if (!db) return null;
+              return pickLatestFirestoreSolicitudDocSnapForOperator(id);
+            })
+            .then(function (docSnap) {
+              if (docSnap && docSnap.exists) {
+                const mirrorChanged = mergePermisoMirrorFromSolicitudDocIntoLocalStorage(
+                  id,
+                  docSnap.data() || {}
+                );
+                if (mirrorChanged) changed = true;
+              }
+              if (changed) {
+                broadcastPermisoStatusChanged(id);
+                syncAdminRequestHistoryEstados(id);
+              }
+              refreshPortalPermisoStatusUI(id);
+              updateEstatusPermisoActionButtonsState();
+              if (isAdminHtmlPage()) refreshAdminNotificationList();
+              return changed;
+            });
+        }
         if (changed) {
           broadcastPermisoStatusChanged(id);
           syncAdminRequestHistoryEstados(id);
@@ -7494,6 +7537,35 @@ function adminNotificationPayloadHash(raw) {
   return h.toString(36);
 }
 
+/** Orden estable de claves para que Firestore/espejo no cambie la huella al re-serializar. */
+function sortObjectKeysDeep(value) {
+  if (value === null || typeof value !== "object") return value;
+  if (Array.isArray(value)) {
+    return value.map(function (x) {
+      return sortObjectKeysDeep(x);
+    });
+  }
+  const out = {};
+  const keys = Object.keys(value).sort();
+  for (let i = 0; i < keys.length; i++) {
+    const k = keys[i];
+    out[k] = sortObjectKeysDeep(value[k]);
+  }
+  return out;
+}
+
+/** Huella del borrador guardado: ignora orden de claves en JSON (evita que suba el contador tras sync). */
+function adminNotificationPayloadCanonicalFingerprint(raw) {
+  if (!raw) return "0";
+  try {
+    const o = JSON.parse(raw);
+    const canon = JSON.stringify(sortObjectKeysDeep(o));
+    return adminNotificationPayloadHash(canon);
+  } catch (e) {
+    return adminNotificationPayloadHash(raw);
+  }
+}
+
 function getAdminNotificationLatestHistoryTs(opId) {
   const history = getAdminRequestHistory(opId);
   let maxTs = 0;
@@ -7523,6 +7595,16 @@ function isAdminNotificationUnread(opId) {
   const raw = getAdminNotificationPayloadRaw(opId);
   if (!raw) return true;
   const ack = window.localStorage.getItem(adminNotificationAckStorageKey(opId));
+  if (ack == null || String(ack).trim() === "") return true;
+  try {
+    const parsed = JSON.parse(ack);
+    if (parsed && parsed.v === 2 && typeof parsed.fp === "string") {
+      const curFp = adminNotificationPayloadCanonicalFingerprint(raw);
+      return curFp !== parsed.fp;
+    }
+  } catch (e) {
+    /* acuse legado: token con maxTs del historial (podía invalidarse tras sync) */
+  }
   return ack !== getAdminNotificationSolicitudVersionToken(opId);
 }
 
@@ -7530,9 +7612,11 @@ function markAdminNotificationAcknowledged(opId) {
   if (!opId) return;
   const id = String(opId);
   if (!operatorHasValidSavedRequestInStorage(id)) return;
+  const raw = getAdminNotificationPayloadRaw(id);
+  const fp = adminNotificationPayloadCanonicalFingerprint(raw);
   window.localStorage.setItem(
     adminNotificationAckStorageKey(id),
-    getAdminNotificationSolicitudVersionToken(id)
+    JSON.stringify({ v: 2, fp: fp })
   );
 }
 
