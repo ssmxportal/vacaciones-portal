@@ -6186,12 +6186,20 @@ function resolveLatestHistorialEstadoForDisplay(opId, latestEntry) {
   } else {
     latestEstado = computeHistorialEstadoForLatestEntry(opId);
     if (leNorm === "na") {
-      if (latestEstado !== "aprobado" && latestEstado !== "rechazado") {
+      if (latestEstado === "aprobado" || latestEstado === "rechazado") {
+        /* conservar cierre unánime reflejado en permiso */
+      } else if (latestEstado === "pendiente") {
+        /* solicitud en curso: Pendiente aunque la fila llevara na por fusión/remoto antigua */
+      } else {
         latestEstado = "na";
       }
     } else if (latestEstado === null) {
       const hasSaved = operatorHasValidSavedRequestInStorage(opId);
-      if (
+      if (leNorm === "aprobado" || leNorm === "rechazado") {
+        latestEstado = leNorm;
+      } else if (hasSaved) {
+        latestEstado = "pendiente";
+      } else if (
         !hasSaved &&
         (leNorm === "pendiente" || leNorm === "")
       ) {
@@ -6209,9 +6217,7 @@ function resolveLatestHistorialEstadoForDisplay(opId, latestEntry) {
     } else if (
       latestEstado === "pendiente" &&
       latestEntry &&
-      (leNorm === "aprobado" ||
-        leNorm === "rechazado" ||
-        leNorm === "na")
+      (leNorm === "aprobado" || leNorm === "rechazado")
     ) {
       latestEstado = leNorm;
     }
