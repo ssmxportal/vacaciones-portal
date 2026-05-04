@@ -1201,6 +1201,7 @@ function syncVacationSaldoFromLocalToFirestore(opId) {
 function syncVacationDaysConsumedToFirestore(opId, consumedDays) {
   const n = parseInt(String(consumedDays || "0"), 10);
   const safe = Number.isFinite(n) && n > 0 ? n : 0;
+  if (safe > 0) clearVacationSaldoManualResetMarker(opId);
   return whenFirebaseAuthReady()
     .then(function () {
       const ref = vacationSaldoFirestoreDoc(opId);
@@ -1357,6 +1358,12 @@ function reconcileVacationDaysConsumedWithFirestore(opId) {
         // - Si local ya tiene consumo, persistir ese valor en Firestore (no resetear a base).
         if (prev > 0) {
           return syncVacationDaysConsumedToFirestore(id, prev).then(function () {
+            return false;
+          });
+        }
+        // Si hubo reset manual a 20, NO reconstruir desde solicitudes históricas aprobadas.
+        if (hasVacationSaldoManualResetMarker(id)) {
+          return syncVacationDaysConsumedToFirestore(id, 0).then(function () {
             return false;
           });
         }
@@ -1650,6 +1657,42 @@ function vacationSaldoNudgeStorageKey(opId) {
   return "vacaciones_saldo_nudge_" + String(opId).trim();
 }
 
+/** Marca local de "reset manual a 20" para no reconstruir consumo desde historial viejo. */
+function vacationSaldoManualResetMarkerKey(opId) {
+  if (!opId) return "";
+  return "vacaciones_saldo_manual_reset_marker_" + String(opId).trim();
+}
+
+function markVacationSaldoManuallyReset(opId) {
+  const k = vacationSaldoManualResetMarkerKey(opId);
+  if (!k) return;
+  try {
+    window.localStorage.setItem(k, String(Date.now()));
+  } catch (e) {
+    /* ignore */
+  }
+}
+
+function clearVacationSaldoManualResetMarker(opId) {
+  const k = vacationSaldoManualResetMarkerKey(opId);
+  if (!k) return;
+  try {
+    window.localStorage.removeItem(k);
+  } catch (e) {
+    /* ignore */
+  }
+}
+
+function hasVacationSaldoManualResetMarker(opId) {
+  const k = vacationSaldoManualResetMarkerKey(opId);
+  if (!k) return false;
+  try {
+    return !!String(window.localStorage.getItem(k) || "").trim();
+  } catch (e) {
+    return false;
+  }
+}
+
 /** Días de vacaciones ya descontados del tope (tras cierre aprobado de solicitud con campo No. días). */
 function getVacationDaysConsumed(opId) {
   if (!opId) return 0;
@@ -1669,10 +1712,11 @@ function clearVacationDaysConsumedStorageForOperator(opId) {
   const key = vacationDaysConsumedStorageKey(id);
   if (!key) return Promise.resolve(false);
   try {
-    window.localStorage.removeItem(key);
+    window.localStorage.setItem(key, "0");
   } catch (e) {
     /* ignore */
   }
+  markVacationSaldoManuallyReset(id);
   try {
     const tk = vacationDaysConsumedLastAppliedTokenKey(id);
     if (tk) window.localStorage.removeItem(tk);
