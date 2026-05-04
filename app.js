@@ -994,6 +994,59 @@ function refreshAdminPendingRequestsMirrorFromFirestore() {
     });
 }
 
+/** Orden de claves estable para comparar borrador local vs payload en Firestore (evita reload en bucle). */
+function sortObjectKeysDeep(v) {
+  if (v === null || typeof v !== "object") return v;
+  if (Array.isArray(v)) return v.map(sortObjectKeysDeep);
+  const o = {};
+  Object.keys(v)
+    .sort()
+    .forEach(function (k) {
+      o[k] = sortObjectKeysDeep(v[k]);
+    });
+  return o;
+}
+
+function stableStringifyPayloadForMirrorCompare(payload) {
+  if (payload == null) return "";
+  if (typeof payload !== "object") return String(payload);
+  try {
+    return JSON.stringify(sortObjectKeysDeep(payload));
+  } catch (e) {
+    try {
+      return JSON.stringify(payload);
+    } catch (e2) {
+      return "";
+    }
+  }
+}
+
+/**
+ * Tras aplicar espejo desde Firestore: recarga completa solo si es seguro (evita parpadeo con solicitud en curso).
+ * @param {boolean} reloadAllowed — si false (p. ej. timer 3,5s), solo repinta UI.
+ */
+function portalAfterMirrorRefreshFromFirestore(changed, opId, reloadAllowed) {
+  if (!changed || !isPortalHtmlPage()) return;
+  const oid = String(opId || "").trim();
+  if (!oid) return;
+  const softOnly =
+    reloadAllowed === false ||
+    document.body.classList.contains("locked-mode") ||
+    hasPortalModificarCambiosActiveForAdminLock(oid);
+  if (softOnly) {
+    try {
+      syncPortalRequestFlowUI(oid);
+      maybeRenderPortalRequestHistory();
+      refreshPortalPermisoStatusUI(oid);
+      portalPollLocalVacationSaldoIfChanged();
+    } catch (e) {
+      /* ignore */
+    }
+    return;
+  }
+  window.location.reload();
+}
+
 function invalidateFirestoreHistorialCachesForOperator(opId) {
   const id = String(opId || "").trim();
   if (!id) return;
@@ -1224,22 +1277,31 @@ function refreshPortalPendingLockMirrorFromFirestore(opId) {
       }
       if (!best || !best.payload || typeof best.payload !== "object") return false;
       const payload = best.payload;
-      const json = JSON.stringify(payload);
+      const jsonStable = stableStringifyPayloadForMirrorCompare(payload);
       const modeKey = `vacaciones_last_saved_locked_mode_${id}`;
       const payKey = `vacaciones_last_saved_payload_${id}`;
       const prevPay = window.localStorage.getItem(payKey);
-      if (prevPay === json) {
+      let prevStable = "";
+      if (prevPay) {
+        try {
+          prevStable = stableStringifyPayloadForMirrorCompare(JSON.parse(prevPay));
+        } catch (e) {
+          prevStable = String(prevPay);
+        }
+      }
+      if (prevStable === jsonStable) {
         return false;
       }
       try {
         window.localStorage.setItem(modeKey, "1");
-        window.localStorage.setItem(payKey, json);
+        window.localStorage.setItem(payKey, JSON.stringify(payload));
       } catch (e) {
         /* ignore */
       }
       if (document.body.classList.contains("locked-mode")) {
+        const lockedJson = JSON.stringify(payload);
         window.sessionStorage.setItem(`vacaciones_locked_mode_${id}`, "1");
-        window.sessionStorage.setItem(`vacaciones_locked_payload_${id}`, json);
+        window.sessionStorage.setItem(`vacaciones_locked_payload_${id}`, lockedJson);
       }
       return true;
     })
@@ -9405,7 +9467,7 @@ function init() {
           renderPortalVacationSaldoDebugInfo(oid);
           refreshPortalPendingLockMirrorFromFirestore(String(oid).trim()).then(
             function (ch) {
-              if (ch) window.location.reload();
+              portalAfterMirrorRefreshFromFirestore(ch, oid, true);
             }
           );
         }
@@ -9422,7 +9484,7 @@ function init() {
           renderPortalVacationSaldoDebugInfo(oid);
           refreshPortalPendingLockMirrorFromFirestore(String(oid).trim()).then(
             function (ch) {
-              if (ch) window.location.reload();
+              portalAfterMirrorRefreshFromFirestore(ch, oid, true);
             }
           );
         }
@@ -9442,7 +9504,7 @@ function init() {
           portalPollLocalVacationSaldoIfChanged();
           refreshPortalPendingLockMirrorFromFirestore(String(oid).trim()).then(
             function (ch) {
-              if (ch) window.location.reload();
+              portalAfterMirrorRefreshFromFirestore(ch, oid, true);
             }
           );
         }
@@ -9479,7 +9541,7 @@ function init() {
             refreshPortalPermisoStatusUI(oid);
           });
           refreshPortalPendingLockMirrorFromFirestore(oid).then(function (ch) {
-            if (ch) window.location.reload();
+            portalAfterMirrorRefreshFromFirestore(ch, oid, false);
           });
         }, 3500);
       }
@@ -10254,7 +10316,7 @@ function init() {
             refreshPortalPendingLockMirrorFromFirestore(oidFs).then(function (
               applied
             ) {
-              if (applied) window.location.reload();
+              portalAfterMirrorRefreshFromFirestore(applied, oidFs, true);
             });
           }
           if (!folio) return;
@@ -10534,7 +10596,7 @@ function init() {
           return refreshPortalPendingLockMirrorFromFirestore(operatorScopeId);
         })
         .then(function (changed) {
-          if (changed) window.location.reload();
+          portalAfterMirrorRefreshFromFirestore(changed, operatorScopeId, true);
         });
     }
 
