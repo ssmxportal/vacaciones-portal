@@ -6082,10 +6082,10 @@ function latestHistoryEntryIndexForOperator(history, operatorId) {
 }
 
 /**
- * Estatus de la solicitud más reciente según permiso en localStorage.
- * Si no hay `vacaciones_permiso_status_*` persistido, devuelve null (el historial no debe
- * inferirse del objeto por defecto "todo pendiente": tras reset maestro / borrado de permiso
- * debe poder quedar «Archivada» / aprobado / rechazado guardados en la última fila).
+ * Estatus de la solicitud más reciente según permiso en localStorage (filas de admins).
+ * — Sin doc persistido: null → `resolveLatestHistorialEstadoForDisplay` puede usar Pendiente
+ *   si hay borrador en curso o Archivada tras maestro, sin asumir solo «todo pendiente» por defecto.
+ * — Con permiso: pendiente / aprobado / rechazado según `estatusFinal`.
  */
 function computeHistorialEstadoForLatestEntry(opId) {
   const id = String(opId || "").trim();
@@ -6235,9 +6235,10 @@ function resolveLatestHistorialEstadoForDisplay(opId, latestEntry) {
 }
 
 /**
- * Persiste estadoHistorial: la más reciente = aprobado | rechazado | pendiente según permiso.
- * Entradas anteriores: si ya quedaron aprobadas/rechazadas, conservar ese valor (no forzar N/A);
- * el resto sigue como na (versiones viejas de una solicitud en trámite).
+ * Persiste estadoHistorial: la fila más reciente refleja el trámite actual
+ * (Pendiente mientras los admins no cierran; Aprobada/Rechazada con el cierre; Archivada
+ * si aplica reset maestro u otras reglas en `resolveLatestHistorialEstadoForDisplay`).
+ * Las filas anteriores: aprobadas/rechazadas se conservan; el resto pasa a na (solicitud sustituida).
  */
 function syncAdminRequestHistoryEstados(opId) {
   if (!opId || String(opId) === "global") return;
@@ -10291,7 +10292,8 @@ function init() {
         JSON.stringify(payloadToStore)
       );
 
-      // Historial de solicitudes por operador (incluye modificaciones).
+      // Historial: cada guardado añade fila en Pendiente; luego `syncAdminRequestHistoryEstados`
+      // ajusta la vigente a Aprobada/Rechazada/Pendiente según permiso o Archivada (maestro, etc.).
       if (operatorScopeId && operatorScopeId !== "global") {
         const tipo = "Solicitud";
         const tsPush = Date.now();
@@ -10301,6 +10303,7 @@ function init() {
             ts: tsPush,
             tipo,
             payload: payloadToStore,
+            estadoHistorial: "pendiente",
           });
           history = history.slice(-25);
           setAdminRequestHistory(String(operatorScopeId), history);
