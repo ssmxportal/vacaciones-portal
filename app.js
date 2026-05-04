@@ -600,7 +600,7 @@ function attachFirestoreFolioFromRemoteForEntry(entry, remoteArr) {
     if (rm !== motive) continue;
     const t1 = r && r.ts ? r.ts : 0;
     const dt = Math.abs(t1 - t2);
-    if (dt < 20000 && dt < bestDt) {
+    if (dt < HISTORY_ENTRY_DUP_MAX_MS && dt < bestDt) {
       const f =
         r && r.firestoreFolio ? String(r.firestoreFolio).trim() : "";
       if (f) {
@@ -665,6 +665,13 @@ function backfillSolicitudFirestoreStatusIfNeeded(entry) {
       delete window.__solicitudFsStatusBackfillCache[folio];
     });
 }
+
+/**
+ * Misma solicitud en portal (ts del guardado) vs Firestore (`createdAt`): suelen separarse
+ * muchos ms; 20s no alcanzaba y quedaban dos filas (local «pendiente» + remoto «archivada»),
+ * con la local primero y la UI creyendo que seguía «en curso».
+ */
+const HISTORY_ENTRY_DUP_MAX_MS = 90 * 24 * 60 * 60 * 1000;
 
 /**
  * Combina historial local y copias en Firestore; si hay duplicado cercano en tiempo y mismo
@@ -746,15 +753,21 @@ function mergeHistoryEntriesPreferFirestore(localArr, remoteArr) {
         ? String(e.payload.motive)
         : "";
     let dupIdx = -1;
+    const ef = e && e.firestoreFolio ? String(e.firestoreFolio).trim() : "";
     for (let j = 0; j < merged.length; j++) {
       const o = merged[j].entry;
+      const of = o && o.firestoreFolio ? String(o.firestoreFolio).trim() : "";
+      if (ef && of && ef === of) {
+        dupIdx = j;
+        break;
+      }
       const om =
         o && o.payload && o.payload.motive != null
           ? String(o.payload.motive)
           : "";
       const t1 = o && o.ts ? o.ts : 0;
       const t2 = e && e.ts ? e.ts : 0;
-      if (motive === om && Math.abs(t1 - t2) < 20000) {
+      if (motive && motive === om && Math.abs(t1 - t2) < HISTORY_ENTRY_DUP_MAX_MS) {
         dupIdx = j;
         break;
       }
@@ -803,10 +816,15 @@ function refreshPortalHistoryFromFirestore(opId) {
       if (qs.docs.length) {
         const latestDoc = pickLatestSolicitudDocSnapFromDocs(qs.docs);
         if (latestDoc && latestDoc.exists) {
-          mergePermisoMirrorFromSolicitudDocIntoLocalStorage(
-            id,
-            latestDoc.data() || {}
+          const latestSt = normalizeSolicitudFirestoreStatusForDoc(
+            (latestDoc.data() || {}).status
           );
+          if (latestSt === "pendiente") {
+            mergePermisoMirrorFromSolicitudDocIntoLocalStorage(
+              id,
+              latestDoc.data() || {}
+            );
+          }
         }
       }
       maybeRenderPortalRequestHistory();
@@ -1082,17 +1100,43 @@ function archiveAllOperatorPendienteSolicitudesInFirestore(opId) {
 }
 
 /**
+ * Tras archivar en Firestore: fusiona historial local con remoto y persiste para que
+ * la última fila deje de ser «pendiente» duplicada (solo quede Archivada en lista).
+ */
+function prunePortalLocalHistoryPendienteSupersededByRemoteArchivada(opId) {
+  const id = String(opId || "").trim();
+  if (!id || !isPortalHtmlPage()) return;
+  const remote =
+    (window.__firestoreHistorialByOperator &&
+      window.__firestoreHistorialByOperator[id]) ||
+    [];
+  if (!remote.length) return;
+  const local = getAdminRequestHistory(id);
+  const merged = mergeHistoryEntriesPreferFirestore(local, remote);
+  merged.sort(function (a, b) {
+    return (b && b.ts ? b.ts : 0) - (a && a.ts ? a.ts : 0);
+  });
+  const top = merged.length ? merged[0] : null;
+  if (!top || normalizeHistorialEstadoStored(top.estadoHistorial) !== "na") {
+    return;
+  }
+  setAdminRequestHistory(id, merged.slice(-25));
+}
+
+/**
  * portal.html: en nube ya no hay solicitud pendiente pero aquí sigue borrador/bloqueo local
  * (p. ej. reset maestro en otro dispositivo) → limpiar para volver a Motivo de ausencia.
- * @returns {boolean} true si se borró estado local de borrador/bloqueo.
+ * @returns {Promise<boolean>} true si se borró estado local de borrador/bloqueo.
  */
 function clearPortalLockWhenNoPendingSolicitudInFirestore(opId) {
   const id = String(opId || "").trim();
-  if (!id || id === "global" || !isPortalHtmlPage()) return false;
+  if (!id || id === "global" || !isPortalHtmlPage()) {
+    return Promise.resolve(false);
+  }
   const hadDraft =
     operatorHasValidSavedRequestInStorage(id) ||
     window.sessionStorage.getItem(`vacaciones_locked_mode_${id}`) === "1";
-  if (!hadDraft) return false;
+  if (!hadDraft) return Promise.resolve(false);
 
   const lockedModeSessionKey = `vacaciones_locked_mode_${id}`;
   const lockedPayloadSessionKey = `vacaciones_locked_payload_${id}`;
@@ -1115,7 +1159,17 @@ function clearPortalLockWhenNoPendingSolicitudInFirestore(opId) {
   } catch (e) {
     /* ignore */
   }
-  return true;
+  const tail = db
+    ? refreshPortalHistoryFromFirestore(id)
+    : Promise.resolve(false);
+  return tail.then(function () {
+    try {
+      prunePortalLocalHistoryPendienteSupersededByRemoteArchivada(id);
+    } catch (e2) {
+      /* ignore */
+    }
+    return true;
+  });
 }
 
 /**
@@ -2459,6 +2513,16 @@ function syncPortalRequestFlowUI(operatorId) {
   // (p. ej. tras «Generar nueva solicitud») no debe reactivar el recuadro tipo historial.
   if (!algunAdminDecidio && hasSaved) {
     algunAdminDecidio = latestHistoryShowsAnyAdminDecision(opId);
+  }
+  // Última fila solo «Archivada» (reset maestro / na): no es «solicitud en curso» ni post‑decisión.
+  const histTop = resolvePortalOperatorHistoryEntriesSorted(opId);
+  const topEntry = histTop.length ? histTop[0] : null;
+  if (
+    topEntry &&
+    normalizeHistorialEstadoStored(topEntry.estadoHistorial) === "na" &&
+    !operatorHasAnyAdminPermisoDecision(opId)
+  ) {
+    algunAdminDecidio = false;
   }
 
   // Safari / iPhone: a veces no hay `vacaciones_last_saved_*` pero sí permiso en nube;
