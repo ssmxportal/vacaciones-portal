@@ -442,8 +442,10 @@ function solicitudFirestoreStatusIsClosedForMirrorMerge(statusRaw) {
 }
 
 /**
- * Tras «Generar nueva solicitud»: borra permisoEstado y quita espejo permiso* en la solicitud
- * cerrada para que la recarga no vuelva a inyectar «Aprobado» desde Firebase.
+ * Tras «Generar nueva solicitud» en portal: fuerza en Firestore las tres filas en Pendiente
+ * para que todos los admins (incl. iPhone) reciban el reset vía permisoEstado + listener.
+ * Antes se borraba el doc; al reconciliar, sin valores remotos, coalesce mantenía aprobado/rechazado local.
+ * Además quita espejo permiso* en la solicitud cerrada más reciente.
  */
 function clearFirestorePermisoStateForNewSolicitudCycle(operatorIdStr) {
   const id = String(operatorIdStr || "").trim();
@@ -451,18 +453,33 @@ function clearFirestorePermisoStateForNewSolicitudCycle(operatorIdStr) {
   return whenFirebaseAuthReady()
     .then(function () {
       if (!db) return null;
-      const delRef = db.collection("permisoEstado").doc(id).delete();
+      const pendientePayload = {
+        supervisor: "pendiente",
+        gerente: "pendiente",
+        rh: "pendiente",
+        updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+      };
+      const setPermiso = db
+        .collection("permisoEstado")
+        .doc(id)
+        .set(pendientePayload);
       const solSnap = pickLatestFirestoreSolicitudDocSnapForOperator(id);
-      return Promise.all([delRef.catch(function (e) {
-        console.warn("[Firestore] permisoEstado delete (nueva solicitud):", e);
-      }), solSnap]);
+      return Promise.all([setPermiso, solSnap]);
     })
     .then(function (results) {
+      try {
+        broadcastPermisoStatusChanged(id);
+      } catch (eBc) {
+        /* ignore */
+      }
+      invalidateFirestoreHistorialCachesForOperator(id);
       const sol = results && results[1] ? results[1] : null;
-      if (!sol || !sol.exists || typeof sol.ref.update !== "function") return false;
+      if (!sol || !sol.exists || typeof sol.ref.update !== "function") {
+        return true;
+      }
       const d = sol.data() || {};
       if (!solicitudFirestoreStatusIsClosedForMirrorMerge(d.status)) {
-        return false;
+        return true;
       }
       const FV = firebase.firestore.FieldValue;
       return sol.ref
@@ -477,7 +494,7 @@ function clearFirestorePermisoStateForNewSolicitudCycle(operatorIdStr) {
         })
         .catch(function (e) {
           console.warn("[Firestore] limpiar espejo permiso en solicitud:", e);
-          return false;
+          return true;
         });
     })
     .catch(function (e) {
@@ -4423,6 +4440,11 @@ function resetPortalOperatorForNewSolicitud(operatorId) {
   clearPortalFinalDecisionModalAck(operatorIdStr);
   clearAdminSavedDecisionLocked(operatorIdStr);
   clearAdminModifEstadoSession(operatorIdStr);
+  try {
+    broadcastPermisoStatusChanged(operatorIdStr);
+  } catch (eBc) {
+    /* ignore */
+  }
   try {
     if (window.__firestoreHistorialByOperator && operatorIdStr) {
       delete window.__firestoreHistorialByOperator[operatorIdStr];
