@@ -1226,6 +1226,55 @@ function clearPortalLockWhenNoPendingSolicitudInFirestore(opId) {
 }
 
 /**
+ * Aplica al almacenamiento local la solicitud pendiente devuelta por Firestore (espejo).
+ * @returns {boolean} true si se escribió un payload distinto al que había en localStorage.
+ */
+function applyPortalPendingLockMirrorFromSnapshotDocs(opId, qs) {
+  const id = String(opId || "").trim();
+  if (!id || !qs || !qs.docs || !qs.docs.length) return false;
+  let best = null;
+  let bestTs = -Infinity;
+  for (let i = 0; i < qs.docs.length; i++) {
+    const docSnap = qs.docs[i];
+    const e = firestoreDocToHistoryEntry(docSnap);
+    const ts = e && e.ts ? Number(e.ts) : 0;
+    if (ts >= bestTs) {
+      bestTs = ts;
+      best = e;
+    }
+  }
+  if (!best || !best.payload || typeof best.payload !== "object") return false;
+  const payload = best.payload;
+  const jsonStable = stableStringifyPayloadForMirrorCompare(payload);
+  const modeKey = `vacaciones_last_saved_locked_mode_${id}`;
+  const payKey = `vacaciones_last_saved_payload_${id}`;
+  const prevPay = window.localStorage.getItem(payKey);
+  let prevStable = "";
+  if (prevPay) {
+    try {
+      prevStable = stableStringifyPayloadForMirrorCompare(JSON.parse(prevPay));
+    } catch (e) {
+      prevStable = String(prevPay);
+    }
+  }
+  if (prevStable === jsonStable) {
+    return false;
+  }
+  try {
+    window.localStorage.setItem(modeKey, "1");
+    window.localStorage.setItem(payKey, JSON.stringify(payload));
+  } catch (e) {
+    /* ignore */
+  }
+  if (document.body.classList.contains("locked-mode")) {
+    const lockedJson = JSON.stringify(payload);
+    window.sessionStorage.setItem(`vacaciones_locked_mode_${id}`, "1");
+    window.sessionStorage.setItem(`vacaciones_locked_payload_${id}`, lockedJson);
+  }
+  return true;
+}
+
+/**
  * portal.html multi-dispositivo (p. ej. iPhone): si localStorage falla o queda vacío,
  * rehidrata `vacaciones_last_saved_*` y session de bloqueo desde la solicitud pendiente en Firestore.
  * @returns {Promise<boolean>} true si se escribió un payload distinto al que había en localStorage.
@@ -1237,18 +1286,25 @@ function refreshPortalPendingLockMirrorFromFirestore(opId) {
   if (hasPortalModificarCambiosActiveForAdminLock(id)) {
     return Promise.resolve(false);
   }
-  return whenFirebaseAuthReady()
-    .then(function () {
-      if (!db) return null;
-      return getFirestoreQueryPreferringServer(
-        db
-          .collection("solicitudes")
-          .where("operatorId", "==", id)
-          .where("status", "==", "pendiente")
-      );
-    })
-    .then(function (qs) {
+
+  const MIRROR_RETRY_MS = 520;
+
+  function portalPendingLockMirrorDelay() {
+    return new Promise(function (resolve) {
+      setTimeout(resolve, MIRROR_RETRY_MS);
+    });
+  }
+
+  function queryPendienteSolicitudesSnapshot() {
+    if (!db) return Promise.resolve(null);
+    return getFirestoreQueryPreferringServer(
+      db
+        .collection("solicitudes")
+        .where("operatorId", "==", id)
+        .where("status", "==", "pendiente")
+    ).then(function (qs) {
       if (qs && qs.docs && qs.docs.length) return qs;
+      if (!db) return null;
       const idNum = parseInt(id, 10);
       if (Number.isFinite(idNum) && String(idNum) === id) {
         return getFirestoreQueryPreferringServer(
@@ -1259,51 +1315,69 @@ function refreshPortalPendingLockMirrorFromFirestore(opId) {
         );
       }
       return qs;
-    })
+    });
+  }
+
+  function snapshotIsUsable(qs) {
+    return !!(qs && qs.docs != null);
+  }
+
+  function portalHasLocalSolicitudLockSignals() {
+    return (
+      operatorHasValidSavedRequestInStorage(id) ||
+      window.sessionStorage.getItem(`vacaciones_locked_mode_${id}`) === "1"
+    );
+  }
+
+  /**
+   * Vacío o snapshot inválido con solicitud en curso en este dispositivo: un solo reintento
+   * (recargas rápidas / iOS a veces devuelven lectura vacía o `db` aún no listo). Tras el reintento,
+   * si sigue sin haber pendiente en nube pero aquí sigue el bloqueo, NO se borra local (evita
+   * desbloquear y marcar historial como Archivada por falso negativo).
+   */
+  function handleMirrorSnapshotAfterQuery(qs, isSecondAttempt) {
+    const usable = snapshotIsUsable(qs);
+    const hasLocalLock = portalHasLocalSolicitudLockSignals();
+
+    if (!usable) {
+      if (!hasLocalLock) {
+        return Promise.resolve(false);
+      }
+      if (isSecondAttempt) {
+        return Promise.resolve(false);
+      }
+      return portalPendingLockMirrorDelay()
+        .then(whenFirebaseAuthReady)
+        .then(queryPendienteSolicitudesSnapshot)
+        .then(function (qs2) {
+          return handleMirrorSnapshotAfterQuery(qs2, true);
+        });
+    }
+
+    if (qs.docs.length) {
+      return Promise.resolve(applyPortalPendingLockMirrorFromSnapshotDocs(id, qs));
+    }
+
+    if (!hasLocalLock) {
+      return clearPortalLockWhenNoPendingSolicitudInFirestore(id);
+    }
+
+    if (isSecondAttempt) {
+      return Promise.resolve(false);
+    }
+
+    return portalPendingLockMirrorDelay()
+      .then(whenFirebaseAuthReady)
+      .then(queryPendienteSolicitudesSnapshot)
+      .then(function (qs2) {
+        return handleMirrorSnapshotAfterQuery(qs2, true);
+      });
+  }
+
+  return whenFirebaseAuthReady()
+    .then(queryPendienteSolicitudesSnapshot)
     .then(function (qs) {
-      if (!qs || !qs.docs || !qs.docs.length) {
-        return clearPortalLockWhenNoPendingSolicitudInFirestore(id);
-      }
-      let best = null;
-      let bestTs = -Infinity;
-      for (let i = 0; i < qs.docs.length; i++) {
-        const docSnap = qs.docs[i];
-        const e = firestoreDocToHistoryEntry(docSnap);
-        const ts = e && e.ts ? Number(e.ts) : 0;
-        if (ts >= bestTs) {
-          bestTs = ts;
-          best = e;
-        }
-      }
-      if (!best || !best.payload || typeof best.payload !== "object") return false;
-      const payload = best.payload;
-      const jsonStable = stableStringifyPayloadForMirrorCompare(payload);
-      const modeKey = `vacaciones_last_saved_locked_mode_${id}`;
-      const payKey = `vacaciones_last_saved_payload_${id}`;
-      const prevPay = window.localStorage.getItem(payKey);
-      let prevStable = "";
-      if (prevPay) {
-        try {
-          prevStable = stableStringifyPayloadForMirrorCompare(JSON.parse(prevPay));
-        } catch (e) {
-          prevStable = String(prevPay);
-        }
-      }
-      if (prevStable === jsonStable) {
-        return false;
-      }
-      try {
-        window.localStorage.setItem(modeKey, "1");
-        window.localStorage.setItem(payKey, JSON.stringify(payload));
-      } catch (e) {
-        /* ignore */
-      }
-      if (document.body.classList.contains("locked-mode")) {
-        const lockedJson = JSON.stringify(payload);
-        window.sessionStorage.setItem(`vacaciones_locked_mode_${id}`, "1");
-        window.sessionStorage.setItem(`vacaciones_locked_payload_${id}`, lockedJson);
-      }
-      return true;
+      return handleMirrorSnapshotAfterQuery(qs, false);
     })
     .catch(function (err) {
       console.warn("[Firestore] mirror bloqueo portal:", err);
@@ -2543,10 +2617,10 @@ function placePortalRequestCardsHost() {
 }
 
 /**
- * Portal local: mientras la solicitud está en curso (guardada, ningún admin ha aprobado/rechazado),
- * solo aplican locked-mode y los recuadros; no se muestra portalRequestCardsHost (evita desordenar el layout).
- * Cuando cualquier admin aprueba o rechaza: se coloca el host en la columna del motivo, se muestra la tarjeta
- * tipo historial (última solicitud) y portal-final-decision-mode oculta los recuadros bloqueados.
+ * Portal local: solicitud guardada + recuadros bloqueados (locked-mode) + ningún admin ha decidido todavía:
+ * se muestra portalRequestCardsHost con la última fila del historial (estado Pendiente) sin portal-final-decision-mode,
+ * para que los formularios bloqueados sigan visibles.
+ * Cuando cualquier admin aprueba o rechaza: portal-final-decision-mode oculta esos recuadros y solo queda la tarjeta tipo historial.
  */
 function syncPortalRequestFlowUI(operatorId) {
   if (isAdminHtmlPage()) return;
@@ -2613,6 +2687,25 @@ function syncPortalRequestFlowUI(operatorId) {
       document.body.classList.add("portal-final-estatus-rechazado");
     } else {
       document.body.classList.remove("portal-final-estatus-rechazado");
+    }
+  } else if (hasSaved && document.body.classList.contains("locked-mode")) {
+    document.body.classList.remove("portal-final-decision-mode");
+    document.body.classList.remove("portal-final-estatus-rechazado");
+    placePortalRequestCardsHost();
+    host.style.display = "flex";
+    let builtPendingHtml = "";
+    if (inlineWrap) {
+      builtPendingHtml =
+        buildAdminRequestHistoryItemsHtml(opId, {
+          onlyLatest: true,
+          omitPdfButton: true,
+        }) || "";
+      inlineWrap.innerHTML =
+        builtPendingHtml ||
+        "<p style='margin:0;color:#000000;font-size:0.92rem;line-height:1.45;padding:8px 0;'>Solicitud en curso — <strong>Pendiente</strong>. Ver detalle en «Ver historial de solicitudes».</p>";
+    }
+    if (db && !builtPendingHtml) {
+      refreshPortalHistoryFromFirestore(opId);
     }
   } else {
     document.body.classList.remove("portal-final-decision-mode");
