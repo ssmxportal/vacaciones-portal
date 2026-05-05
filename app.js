@@ -1237,6 +1237,7 @@ function clearPortalLockWhenNoPendingSolicitudInFirestore(opId) {
   window.localStorage.removeItem(lockedModeLocalKey);
   window.localStorage.removeItem(lockedPayloadLocalKey);
   window.localStorage.removeItem(permisoStatusStorageKey(id));
+  bumpPermisoLocalMutationEpoch(id);
   clearPortalFinalDecisionModalAck(id);
   clearAdminSavedDecisionLocked(id);
   clearAdminModifEstadoSession(id);
@@ -2307,6 +2308,20 @@ function permisoStatusStorageKey(operatorId) {
   return `vacaciones_permiso_status_${operatorId}`;
 }
 
+/**
+ * Evita que un reconcile tardío (poll / GET antiguo) pise un merge recién aplicado
+ * desde `onSnapshot` u otra escritura local con datos más nuevos de Firestore.
+ */
+window.__permisoLocalMutationEpochByOp =
+  window.__permisoLocalMutationEpochByOp || Object.create(null);
+
+function bumpPermisoLocalMutationEpoch(operatorId) {
+  const id = String(operatorId || "").trim();
+  if (!id) return;
+  window.__permisoLocalMutationEpochByOp[id] =
+    (window.__permisoLocalMutationEpochByOp[id] || 0) + 1;
+}
+
 /** Solo en admin.html: recuadro de solicitud guardada + estatus del permiso. */
 function isAdminHtmlPage() {
   return !!document.getElementById("adminSavedEstatusWrap");
@@ -2946,6 +2961,7 @@ function setPermisoStatusField(operatorId, roleKey, value) {
     permisoStatusStorageKey(operatorId),
     JSON.stringify(s)
   );
+  bumpPermisoLocalMutationEpoch(String(operatorId));
   broadcastPermisoStatusChanged(operatorId);
   syncAdminRequestHistoryEstados(String(operatorId));
   pushPermisoStatusToFirestore(operatorId);
@@ -2960,6 +2976,7 @@ function clearPermisoStatusStorage(operatorId) {
   if (!operatorId) return;
   const id = String(operatorId);
   window.localStorage.removeItem(permisoStatusStorageKey(id));
+  bumpPermisoLocalMutationEpoch(id);
   clearAdminSavedDecisionLocked(id);
   clearAdminModifEstadoSession(id);
   clearPortalFinalDecisionModalAck(id);
@@ -3131,6 +3148,7 @@ function applyFullPermisoReconciliationFromFirestore(
   const merged = withComputedEstatusFinal(next);
   try {
     window.localStorage.setItem(permisoStatusStorageKey(id), JSON.stringify(merged));
+    bumpPermisoLocalMutationEpoch(id);
   } catch (e) {
     console.warn("[permiso] localStorage:", e);
     return false;
@@ -3146,6 +3164,7 @@ function fetchSolicitudesSnapshotForPermisoReconcile(operatorIdStr) {
 function reconcilePermisoForOperatorFromNetwork(opId) {
   const id = String(opId || "").trim();
   if (!id || !db) return Promise.resolve(false);
+  const epochAtStart = window.__permisoLocalMutationEpochByOp[id] || 0;
   let permisoData = {};
   let permisoEstadoDocExisted = false;
   return whenFirebaseAuthReady()
@@ -3161,6 +3180,12 @@ function reconcilePermisoForOperatorFromNetwork(opId) {
       return fetchSolicitudesSnapshotForPermisoReconcile(id);
     })
     .then(function (qs) {
+      if ((window.__permisoLocalMutationEpochByOp[id] || 0) !== epochAtStart) {
+        refreshPortalPermisoStatusUI(id);
+        updateEstatusPermisoActionButtonsState();
+        if (isAdminHtmlPage()) refreshAdminNotificationList();
+        return false;
+      }
       const docSnap =
         qs && qs.docs && qs.docs.length
           ? pickLatestSolicitudDocSnapFromDocs(qs.docs)
@@ -3221,6 +3246,7 @@ function mergePermisoEstadoDocIntoLocalStorage(operatorId, data) {
   if (nextJson === prevJson) return false;
   try {
     window.localStorage.setItem(permisoStatusStorageKey(id), nextJson);
+    bumpPermisoLocalMutationEpoch(id);
   } catch (e) {
     console.warn("[permiso] localStorage:", e);
     return false;
@@ -3269,6 +3295,7 @@ function pushPermisoStatusToFirestore(operatorId) {
                 permisoStatusStorageKey(id),
                 nextJson
               );
+              bumpPermisoLocalMutationEpoch(id);
               broadcastPermisoStatusChanged(id);
               syncAdminRequestHistoryEstados(id);
             }
@@ -4448,6 +4475,7 @@ function resetPortalOperatorForNewSolicitud(operatorId) {
   window.localStorage.removeItem("vacaciones_last_saved_payload_global");
   window.localStorage.removeItem(adminSavedDecisionLockStorageKey("global"));
   window.localStorage.removeItem(permisoStatusStorageKey(operatorIdStr));
+  bumpPermisoLocalMutationEpoch(operatorIdStr);
   clearPortalFinalDecisionModalAck(operatorIdStr);
   clearAdminSavedDecisionLocked(operatorIdStr);
   clearAdminModifEstadoSession(operatorIdStr);
@@ -8632,6 +8660,23 @@ function setupAdminNotificationCenter() {
         return;
       }
       refreshAdminNotificationList();
+      if (k.startsWith("vacaciones_permiso_status_")) {
+        const oidFromKey = k.replace("vacaciones_permiso_status_", "").trim();
+        if (
+          oidFromKey &&
+          state.filtered &&
+          state.filtered.length === 1 &&
+          String(state.filtered[0].id).trim() === oidFromKey
+        ) {
+          refreshPortalPermisoStatusUI(oidFromKey);
+          updateEstatusPermisoActionButtonsState();
+          try {
+            maybeRenderAdminRequestHistory();
+          } catch (eR) {
+            /* ignore */
+          }
+        }
+      }
     });
   }
 }
@@ -9511,6 +9556,36 @@ function init() {
     setupAdminHistorialFirestoreScopeControls();
     setupAdminNotificationCenter();
     refreshAdminFirestoreMirrorsThenUi();
+    if (!window.__adminPermisoStatusBcBound) {
+      window.__adminPermisoStatusBcBound = true;
+      try {
+        if (typeof BroadcastChannel !== "undefined") {
+          const bcAdminPermiso = new BroadcastChannel(PERMISO_STATUS_BC);
+          bcAdminPermiso.onmessage = function (ev) {
+            if (!ev.data || !ev.data.operatorId || !isAdminHtmlPage()) return;
+            const oidBc = String(ev.data.operatorId).trim();
+            if (
+              !oidBc ||
+              !state.filtered ||
+              state.filtered.length !== 1 ||
+              String(state.filtered[0].id).trim() !== oidBc
+            ) {
+              return;
+            }
+            refreshPortalPermisoStatusUI(oidBc);
+            updateEstatusPermisoActionButtonsState();
+            try {
+              maybeRenderAdminRequestHistory();
+            } catch (eBc) {
+              /* ignore */
+            }
+            renderAdminSavedRequestSummary();
+          };
+        }
+      } catch (eBc2) {
+        /* ignore */
+      }
+    }
     if (!window.__adminFsPendingMirrorFocusBound) {
       window.__adminFsPendingMirrorFocusBound = true;
       const refreshAdminMirrorNow = function () {
@@ -10501,6 +10576,7 @@ function init() {
             window.localStorage.removeItem(
               permisoStatusStorageKey(String(operatorScopeId))
             );
+            bumpPermisoLocalMutationEpoch(String(operatorScopeId));
             clearPortalFinalDecisionModalAck(String(operatorScopeId));
             try {
               broadcastPermisoStatusChanged(String(operatorScopeId));
