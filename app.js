@@ -406,15 +406,34 @@ function pickLatestSolicitudDocSnapFromDocs(docs) {
   return best;
 }
 
+/**
+ * Consulta `solicitudes` por operatorId: string y, si el id es numérico puro, repite con número
+ * (en Firestore `operatorId` a veces es number; en iPhone fallaba al no encontrar documentos).
+ */
+function fetchSolicitudesQuerySnapshotForOperatorPreferringServer(operatorIdStr) {
+  const id = String(operatorIdStr || "").trim();
+  if (!id || !db) return Promise.resolve(null);
+  return getFirestoreQueryPreferringServer(
+    db.collection("solicitudes").where("operatorId", "==", id)
+  ).then(function (qs) {
+    if (qs && qs.docs && qs.docs.length) return qs;
+    const idNum = parseInt(id, 10);
+    if (Number.isFinite(idNum) && String(idNum) === id) {
+      return getFirestoreQueryPreferringServer(
+        db.collection("solicitudes").where("operatorId", "==", idNum)
+      );
+    }
+    return qs;
+  });
+}
+
 function pickLatestFirestoreSolicitudDocSnapForOperator(opId) {
   const id = String(opId || "").trim();
   if (!id || !db) return Promise.resolve(null);
   return whenFirebaseAuthReady()
     .then(function () {
       if (!db) return null;
-      return getFirestoreQueryPreferringServer(
-        db.collection("solicitudes").where("operatorId", "==", id)
-      );
+      return fetchSolicitudesQuerySnapshotForOperatorPreferringServer(id);
     })
     .then(function (qs) {
       if (!qs || !qs.docs || !qs.docs.length) return null;
@@ -821,9 +840,7 @@ function refreshPortalHistoryFromFirestore(opId) {
   return whenFirebaseAuthReady()
     .then(function () {
       if (!db) return;
-      return getFirestoreQueryPreferringServer(
-        db.collection("solicitudes").where("operatorId", "==", id)
-      );
+      return fetchSolicitudesQuerySnapshotForOperatorPreferringServer(id);
     })
     .then(function (qs) {
       if (!qs || !qs.docs) return false;
@@ -2665,18 +2682,10 @@ function syncPortalRequestFlowUI(operatorId) {
   const topEstadoNorm = topEntry
     ? normalizeHistorialEstadoStored(topEntry.estadoHistorial)
     : "";
-  const tramiteNuevoPendiente =
-    hasSaved &&
-    topEstadoNorm === "pendiente" &&
-    !isMaestroArchivadaMarker(topEntry);
 
   let algunAdminDecidio = operatorHasAnyAdminPermisoDecision(opId);
-  if (tramiteNuevoPendiente) {
-    /* Permiso local o espejo Firestore puede seguir con aprobado/rechazado del ciclo anterior (p. ej. iPhone). */
-    algunAdminDecidio = false;
-  } else if (!algunAdminDecidio && hasSaved) {
-    // El historial puede seguir mostrando «Aprobado» en una fila antigua; sin borrador activo
-    // (p. ej. tras «Generar nueva solicitud») no debe reactivar el recuadro tipo historial.
+  if (!algunAdminDecidio && hasSaved) {
+    // El historial puede reflejar decisión en espejo Firestore aunque el permiso local tarde (p. ej. iOS).
     algunAdminDecidio = latestHistoryShowsAnyAdminDecision(opId);
   }
   // Última fila solo «Archivada» (reset maestro / na): no es «solicitud en curso» ni post‑decisión.
@@ -3066,12 +3075,17 @@ function mergeSolicitudMirrorFieldsWithLocalForWrite(solicitudData, localStatus)
 
 /**
  * Una sola escritura en localStorage mezclando permisoEstado + espejo solicitud (iOS / doc parcial).
+ * @param {{ permisoEstadoDocExisted?: boolean }} [options] — si hubo documento en `permisoEstado`, cada fila
+ *   definida en la nube (p. ej. "pendiente" tras nueva solicitud) manda sobre localStorage obsoleto.
  */
 function applyFullPermisoReconciliationFromFirestore(
   operatorId,
   permisoEstadoData,
-  solicitudDocData
+  solicitudDocData,
+  options
 ) {
+  options = options || {};
+  const permisoDocExisted = !!options.permisoEstadoDocExisted;
   const id = String(operatorId || "").trim();
   if (!id) return false;
   const pe =
@@ -3094,7 +3108,17 @@ function applyFullPermisoReconciliationFromFirestore(
     const vSol = Object.prototype.hasOwnProperty.call(sd, row.sol)
       ? readFirestorePermisoRoleValue(sd[row.sol])
       : null;
-    const resolved = coalescePermisoRemoteRow(vPe, vSol, next[row.k]);
+    let resolved;
+    if (permisoDocExisted && Object.prototype.hasOwnProperty.call(pe, row.k)) {
+      const vDirect = readFirestorePermisoRoleValue(pe[row.k]);
+      if (vDirect != null) {
+        resolved = vDirect;
+      } else {
+        resolved = coalescePermisoRemoteRow(vPe, vSol, next[row.k]);
+      }
+    } else {
+      resolved = coalescePermisoRemoteRow(vPe, vSol, next[row.k]);
+    }
     const prevN = normalizePermisoRowValue(
       String(next[row.k] != null ? next[row.k] : "")
     );
@@ -3114,31 +3138,16 @@ function applyFullPermisoReconciliationFromFirestore(
   return true;
 }
 
-/**
- * Todas las solicitudes del operador para reconciliar permiso (espejo en solicitud + permisoEstado).
- * Incluye fallback numérico: en Firestore `operatorId` a veces es número; solo string devuelve vacío en iPhone/PC.
- */
+/** Todas las solicitudes del operador para reconciliar permiso (misma query que historial / último doc). */
 function fetchSolicitudesSnapshotForPermisoReconcile(operatorIdStr) {
-  const id = String(operatorIdStr || "").trim();
-  if (!id || !db) return Promise.resolve(null);
-  return getFirestoreQueryPreferringServer(
-    db.collection("solicitudes").where("operatorId", "==", id)
-  ).then(function (qs) {
-    if (qs && qs.docs && qs.docs.length) return qs;
-    const idNum = parseInt(id, 10);
-    if (Number.isFinite(idNum) && String(idNum) === id) {
-      return getFirestoreQueryPreferringServer(
-        db.collection("solicitudes").where("operatorId", "==", idNum)
-      );
-    }
-    return qs;
-  });
+  return fetchSolicitudesQuerySnapshotForOperatorPreferringServer(operatorIdStr);
 }
 
 function reconcilePermisoForOperatorFromNetwork(opId) {
   const id = String(opId || "").trim();
   if (!id || !db) return Promise.resolve(false);
   let permisoData = {};
+  let permisoEstadoDocExisted = false;
   return whenFirebaseAuthReady()
     .then(function () {
       if (!db) return null;
@@ -3147,6 +3156,7 @@ function reconcilePermisoForOperatorFromNetwork(opId) {
       );
     })
     .then(function (snap) {
+      permisoEstadoDocExisted = !!(snap && snap.exists);
       if (snap && snap.exists) permisoData = snap.data() || {};
       return fetchSolicitudesSnapshotForPermisoReconcile(id);
     })
@@ -3165,7 +3175,8 @@ function reconcilePermisoForOperatorFromNetwork(opId) {
       const changed = applyFullPermisoReconciliationFromFirestore(
         id,
         permisoData,
-        solData
+        solData,
+        { permisoEstadoDocExisted: permisoEstadoDocExisted }
       );
       if (changed) {
         broadcastPermisoStatusChanged(id);
@@ -6345,15 +6356,6 @@ function resolveLatestHistorialEstadoForDisplay(opId, latestEntry) {
     latestEstado = "na";
   } else {
     latestEstado = computeHistorialEstadoForLatestEntry(opId);
-    /* Nueva solicitud en curso: la fila va en pendiente pero iOS/reconcile puede dejar permiso del ciclo anterior en localStorage → no mostrar Aprobado/Rechazado hasta que los admins actúen de nuevo. */
-    const hasSavedDraft = operatorHasValidSavedRequestInStorage(opId);
-    if (
-      leNorm === "pendiente" &&
-      hasSavedDraft &&
-      (latestEstado === "aprobado" || latestEstado === "rechazado")
-    ) {
-      latestEstado = "pendiente";
-    }
     if (leNorm === "na") {
       if (latestEstado === "aprobado" || latestEstado === "rechazado") {
         /* conservar cierre unánime reflejado en permiso */
