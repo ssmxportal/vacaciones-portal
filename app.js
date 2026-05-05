@@ -3139,12 +3139,11 @@ function reconcilePermisoForOperatorFromNetwork(opId) {
           ? pickLatestSolicitudDocSnapFromDocs(qs.docs)
           : null;
       let solData = docSnap && docSnap.exists ? docSnap.data() || {} : {};
-      const hasSavedLocal = operatorHasValidSavedRequestInStorage(id);
       if (solicitudFirestoreStatusIsClosedForMirrorMerge(solData.status)) {
+        /* No mezclar espejo permiso* de una solicitud ya cerrada (evita datos viejos).
+         * Nunca vaciar `permisoData`: viene de `permisoEstado` y es la fuente de verdad
+         * para admin en otro dispositivo (p. ej. iPhone sin borrador portal en localStorage). */
         solData = {};
-        if (!hasSavedLocal) {
-          permisoData = {};
-        }
       }
       const changed = applyFullPermisoReconciliationFromFirestore(
         id,
@@ -9470,12 +9469,20 @@ function init() {
       document.addEventListener("visibilitychange", function () {
         if (document.visibilityState !== "visible") return;
         refreshAdminMirrorNow();
+        window.setTimeout(function () {
+          if (document.visibilityState !== "visible" || !isAdminHtmlPage()) return;
+          refreshAdminMirrorNow();
+        }, 450);
       });
       window.addEventListener("focus", function () {
         refreshAdminMirrorNow();
       });
       window.addEventListener("pageshow", function () {
         refreshAdminMirrorNow();
+        window.setTimeout(function () {
+          if (document.visibilityState !== "visible" || !isAdminHtmlPage()) return;
+          refreshAdminMirrorNow();
+        }, 450);
       });
     }
     if (!window.__adminFsPendingMirrorTimer) {
