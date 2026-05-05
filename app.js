@@ -3466,19 +3466,39 @@ function restartAdminPermisoEstadoLiveSync() {
 
 function wireAdminPermisoEstadoOnSnapshot(opId) {
   if (!db || !isAdminHtmlPage()) return;
-  if (window.__adminPermisoEstadoSyncOpId !== opId) return;
-  const ref = db.collection("permisoEstado").doc(opId);
+  const idNorm = String(opId || "").trim();
+  if (!idNorm || window.__adminPermisoEstadoSyncOpId !== idNorm) return;
+  const ref = db.collection("permisoEstado").doc(idNorm);
+  /* includeMetadataChanges: iOS/WebKit a veces entrega primero caché y luego servidor; así repintamos al confirmar. */
   window.__adminPermisoEstadoUnsub = ref.onSnapshot(
-    function () {
+    { includeMetadataChanges: true },
+    function (snap) {
       if (!isAdminHtmlPage()) return;
       if (
         !state.filtered ||
         state.filtered.length !== 1 ||
-        String(state.filtered[0].id).trim() !== String(opId).trim()
+        String(state.filtered[0].id).trim() !== idNorm
       ) {
         return;
       }
-      reconcilePermisoForOperatorFromNetwork(opId).then(function () {
+      if (snap.exists) {
+        const raw = snap.data() || {};
+        if (mergePermisoEstadoDocIntoLocalStorage(idNorm, raw)) {
+          try {
+            syncAdminRequestHistoryEstados(idNorm);
+          } catch (e) {
+            /* ignore */
+          }
+        }
+        try {
+          broadcastPermisoStatusChanged(idNorm);
+        } catch (e) {
+          /* ignore */
+        }
+      }
+      refreshPortalPermisoStatusUI(idNorm);
+      updateEstatusPermisoActionButtonsState();
+      reconcilePermisoForOperatorFromNetwork(idNorm).then(function () {
         try {
           maybeRenderAdminRequestHistory();
         } catch (e) {
@@ -3501,7 +3521,7 @@ function wireAdminPermisoEstadoOnSnapshot(opId) {
       }, 500);
     }
   );
-  refreshPermisoStatusFromFirestoreForOperator(opId);
+  refreshPermisoStatusFromFirestoreForOperator(idNorm);
 }
 
 function stopPortalPermisoEstadoLiveSync() {
@@ -4054,10 +4074,16 @@ function renderPermisoStatusPillHtml(status) {
 }
 
 function refreshPortalPermisoStatusUI(operatorId) {
-  const oid =
-    operatorId !== undefined && operatorId !== null
-      ? String(operatorId)
-      : (window.sessionStorage.getItem("vacaciones_operator_id") || "");
+  let oid = "";
+  if (operatorId !== undefined && operatorId !== null) {
+    oid = String(operatorId).trim();
+  }
+  if (!oid && isAdminHtmlPage()) {
+    oid = (getCurrentAdminFilteredOperatorIdForPermisoActions() || "").trim();
+  }
+  if (!oid) {
+    oid = (window.sessionStorage.getItem("vacaciones_operator_id") || "").trim();
+  }
   const s = getPermisoStatus(oid);
   const newJson = oid ? JSON.stringify(s) : "";
   // Siempre reconciliar historial con el permiso actual (no solo cuando cambia el JSON):
@@ -9504,7 +9530,7 @@ function init() {
         const oidPoll = String(state.filtered[0].id).trim();
         if (!oidPoll) return;
         refreshPermisoStatusFromFirestoreForOperator(oidPoll);
-      }, 3500);
+      }, 2000);
     }
   } else if (role === "local") {
     const localOperatorId = (
