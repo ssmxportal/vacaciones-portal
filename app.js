@@ -2643,18 +2643,29 @@ function syncPortalRequestFlowUI(operatorId) {
   renderPortalRequestHistory(opId);
 
   const hasSaved = operatorHasValidSavedRequestInStorage(opId);
+  const histTop = resolvePortalOperatorHistoryEntriesSorted(opId);
+  const topEntry = histTop.length ? histTop[0] : null;
+  const topEstadoNorm = topEntry
+    ? normalizeHistorialEstadoStored(topEntry.estadoHistorial)
+    : "";
+  const tramiteNuevoPendiente =
+    hasSaved &&
+    topEstadoNorm === "pendiente" &&
+    !isMaestroArchivadaMarker(topEntry);
+
   let algunAdminDecidio = operatorHasAnyAdminPermisoDecision(opId);
-  // El historial puede seguir mostrando «Aprobado» en la última fila cerrada; sin borrador activo
-  // (p. ej. tras «Generar nueva solicitud») no debe reactivar el recuadro tipo historial.
-  if (!algunAdminDecidio && hasSaved) {
+  if (tramiteNuevoPendiente) {
+    /* Permiso local o espejo Firestore puede seguir con aprobado/rechazado del ciclo anterior (p. ej. iPhone). */
+    algunAdminDecidio = false;
+  } else if (!algunAdminDecidio && hasSaved) {
+    // El historial puede seguir mostrando «Aprobado» en una fila antigua; sin borrador activo
+    // (p. ej. tras «Generar nueva solicitud») no debe reactivar el recuadro tipo historial.
     algunAdminDecidio = latestHistoryShowsAnyAdminDecision(opId);
   }
   // Última fila solo «Archivada» (reset maestro / na): no es «solicitud en curso» ni post‑decisión.
-  const histTop = resolvePortalOperatorHistoryEntriesSorted(opId);
-  const topEntry = histTop.length ? histTop[0] : null;
   if (
     topEntry &&
-    normalizeHistorialEstadoStored(topEntry.estadoHistorial) === "na" &&
+    topEstadoNorm === "na" &&
     !operatorHasAnyAdminPermisoDecision(opId)
   ) {
     algunAdminDecidio = false;
@@ -3086,6 +3097,27 @@ function applyFullPermisoReconciliationFromFirestore(
   return true;
 }
 
+/**
+ * Todas las solicitudes del operador para reconciliar permiso (espejo en solicitud + permisoEstado).
+ * Incluye fallback numérico: en Firestore `operatorId` a veces es número; solo string devuelve vacío en iPhone/PC.
+ */
+function fetchSolicitudesSnapshotForPermisoReconcile(operatorIdStr) {
+  const id = String(operatorIdStr || "").trim();
+  if (!id || !db) return Promise.resolve(null);
+  return getFirestoreQueryPreferringServer(
+    db.collection("solicitudes").where("operatorId", "==", id)
+  ).then(function (qs) {
+    if (qs && qs.docs && qs.docs.length) return qs;
+    const idNum = parseInt(id, 10);
+    if (Number.isFinite(idNum) && String(idNum) === id) {
+      return getFirestoreQueryPreferringServer(
+        db.collection("solicitudes").where("operatorId", "==", idNum)
+      );
+    }
+    return qs;
+  });
+}
+
 function reconcilePermisoForOperatorFromNetwork(opId) {
   const id = String(opId || "").trim();
   if (!id || !db) return Promise.resolve(false);
@@ -3099,9 +3131,7 @@ function reconcilePermisoForOperatorFromNetwork(opId) {
     })
     .then(function (snap) {
       if (snap && snap.exists) permisoData = snap.data() || {};
-      return getFirestoreQueryPreferringServer(
-        db.collection("solicitudes").where("operatorId", "==", id)
-      );
+      return fetchSolicitudesSnapshotForPermisoReconcile(id);
     })
     .then(function (qs) {
       const docSnap =
@@ -3460,6 +3490,16 @@ function wireAdminPermisoEstadoOnSnapshot(opId) {
     },
     function (err) {
       console.warn("[Firestore] permisoEstado snapshot admin:", err);
+      const now = Date.now();
+      window.__adminPermisoSnapshotErrLastTs =
+        window.__adminPermisoSnapshotErrLastTs || 0;
+      if (now - window.__adminPermisoSnapshotErrLastTs < 10000) return;
+      window.__adminPermisoSnapshotErrLastTs = now;
+      stopAdminPermisoEstadoLiveSync();
+      window.setTimeout(function () {
+        if (!isAdminHtmlPage()) return;
+        restartAdminPermisoEstadoLiveSync();
+      }, 500);
     }
   );
   refreshPermisoStatusFromFirestoreForOperator(opId);
@@ -6258,6 +6298,15 @@ function resolveLatestHistorialEstadoForDisplay(opId, latestEntry) {
     latestEstado = "na";
   } else {
     latestEstado = computeHistorialEstadoForLatestEntry(opId);
+    /* Nueva solicitud en curso: la fila va en pendiente pero iOS/reconcile puede dejar permiso del ciclo anterior en localStorage → no mostrar Aprobado/Rechazado hasta que los admins actúen de nuevo. */
+    const hasSavedDraft = operatorHasValidSavedRequestInStorage(opId);
+    if (
+      leNorm === "pendiente" &&
+      hasSavedDraft &&
+      (latestEstado === "aprobado" || latestEstado === "rechazado")
+    ) {
+      latestEstado = "pendiente";
+    }
     if (leNorm === "na") {
       if (latestEstado === "aprobado" || latestEstado === "rechazado") {
         /* conservar cierre unánime reflejado en permiso */
@@ -10372,6 +10421,17 @@ function init() {
         const tsPush = Date.now();
         try {
           let history = getAdminRequestHistory(String(operatorScopeId));
+          const prevIdx = history.length ? latestHistoryEntryIndex(history) : -1;
+          const prevEntry = prevIdx >= 0 ? history[prevIdx] : null;
+          const prevNorm = prevEntry
+            ? normalizeHistorialEstadoStored(prevEntry.estadoHistorial)
+            : "";
+          const cicloAnteriorCerrado =
+            prevNorm === "aprobado" ||
+            prevNorm === "rechazado" ||
+            prevNorm === "na";
+          const sinHistorialPrevio = history.length === 0;
+
           history.push({
             ts: tsPush,
             tipo,
@@ -10380,6 +10440,17 @@ function init() {
           });
           history = history.slice(-25);
           setAdminRequestHistory(String(operatorScopeId), history);
+          if (cicloAnteriorCerrado || sinHistorialPrevio) {
+            window.localStorage.removeItem(
+              permisoStatusStorageKey(String(operatorScopeId))
+            );
+            clearPortalFinalDecisionModalAck(String(operatorScopeId));
+            try {
+              broadcastPermisoStatusChanged(String(operatorScopeId));
+            } catch (eBc) {
+              /* ignore */
+            }
+          }
           syncAdminRequestHistoryEstados(String(operatorScopeId));
         } catch (e) {
           /* ignore */
