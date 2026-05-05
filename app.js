@@ -2617,10 +2617,9 @@ function placePortalRequestCardsHost() {
 }
 
 /**
- * Portal local: solicitud guardada + recuadros bloqueados (locked-mode) + ningún admin ha decidido todavía:
- * se muestra portalRequestCardsHost con la última fila del historial (estado Pendiente) sin portal-final-decision-mode,
- * para que los formularios bloqueados sigan visibles.
- * Cuando cualquier admin aprueba o rechaza: portal-final-decision-mode oculta esos recuadros y solo queda la tarjeta tipo historial.
+ * Portal local: mientras la solicitud está en curso (guardada, ningún admin ha aprobado/rechazado),
+ * solo locked-mode y los recuadros; no se muestra portalRequestCardsHost (evita duplicar layout con la píldora Pendiente).
+ * Cuando cualquier admin aprueba o rechaza: tarjeta tipo historial + portal-final-decision-mode (oculta los recuadros bloqueados).
  */
 function syncPortalRequestFlowUI(operatorId) {
   if (isAdminHtmlPage()) return;
@@ -2687,25 +2686,6 @@ function syncPortalRequestFlowUI(operatorId) {
       document.body.classList.add("portal-final-estatus-rechazado");
     } else {
       document.body.classList.remove("portal-final-estatus-rechazado");
-    }
-  } else if (hasSaved && document.body.classList.contains("locked-mode")) {
-    document.body.classList.remove("portal-final-decision-mode");
-    document.body.classList.remove("portal-final-estatus-rechazado");
-    placePortalRequestCardsHost();
-    host.style.display = "flex";
-    let builtPendingHtml = "";
-    if (inlineWrap) {
-      builtPendingHtml =
-        buildAdminRequestHistoryItemsHtml(opId, {
-          onlyLatest: true,
-          omitPdfButton: true,
-        }) || "";
-      inlineWrap.innerHTML =
-        builtPendingHtml ||
-        "<p style='margin:0;color:#000000;font-size:0.92rem;line-height:1.45;padding:8px 0;'>Solicitud en curso — <strong>Pendiente</strong>. Ver detalle en «Ver historial de solicitudes».</p>";
-    }
-    if (db && !builtPendingHtml) {
-      refreshPortalHistoryFromFirestore(opId);
     }
   } else {
     document.body.classList.remove("portal-final-decision-mode");
