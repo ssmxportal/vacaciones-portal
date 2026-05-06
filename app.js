@@ -2747,7 +2747,9 @@ function syncPortalRequestFlowUI(operatorId) {
     algunAdminDecidio = latestHistoryShowsAnyAdminDecision(opId);
   }
   // Nuevo ciclo recién guardado: si la última entrada es Pendiente y corresponde al mismo
-  // payload bloqueado actual, no activar modo post-decisión por residuos del ciclo anterior.
+  // payload bloqueado actual, NO activar modo post-decisión por residuos del ciclo anterior.
+  // Ojo: no depender de latestHistoryShowsAnyAdminDecision(), porque ese helper puede leer
+  // una decisión del ciclo previo y forzar falso positivo en esta solicitud recién guardada.
   if (hasSaved && topEntry && topEstadoNorm === "pendiente") {
     try {
       const payRaw = window.localStorage.getItem(
@@ -2763,7 +2765,7 @@ function syncPortalRequestFlowUI(operatorId) {
           typeof stableStringifyPayloadForMirrorCompare === "function"
             ? stableStringifyPayloadForMirrorCompare(topPay)
             : JSON.stringify(topPay);
-        if (localStable === topStable && !latestHistoryShowsAnyAdminDecision(opId)) {
+        if (localStable === topStable) {
           algunAdminDecidio = false;
         }
       }
