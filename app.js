@@ -487,7 +487,7 @@ function clearFirestorePermisoStateForNewSolicitudCycle(operatorIdStr) {
     })
     .then(function (results) {
       try {
-        broadcastPermisoStatusChanged(id);
+        broadcastPermisoStatusChanged(id, { resetToPendiente: true });
       } catch (eBc) {
         /* ignore */
       }
@@ -3009,13 +3009,17 @@ function broadcastVacationSaldoReset(operatorId) {
   }
 }
 
-function broadcastPermisoStatusChanged(operatorId) {
+function broadcastPermisoStatusChanged(operatorId, options) {
   try {
     if (typeof BroadcastChannel === "undefined") return;
     if (!__permisoStatusBcSender) {
       __permisoStatusBcSender = new BroadcastChannel(PERMISO_STATUS_BC);
     }
-    __permisoStatusBcSender.postMessage({ operatorId: String(operatorId) });
+    const msg = { operatorId: String(operatorId) };
+    if (options && typeof options === "object" && options.resetToPendiente) {
+      msg.resetToPendiente = true;
+    }
+    __permisoStatusBcSender.postMessage(msg);
   } catch (e) {
     /* ignore */
   }
@@ -5456,6 +5460,13 @@ function setupPortalPostApproveActions() {
       .then(function () {
         resetPortalOperatorForNewSolicitud(oid);
         return ensurePermisoEstadoPendienteForNewCycle(oid);
+      })
+      .then(function () {
+        try {
+          broadcastPermisoStatusChanged(oid, { resetToPendiente: true });
+        } catch (eBc) {
+          /* ignore */
+        }
       })
       .finally(function () {
         window.location.reload();
@@ -9783,22 +9794,39 @@ function init() {
           bcAdminPermiso.onmessage = function (ev) {
             if (!ev.data || !ev.data.operatorId || !isAdminHtmlPage()) return;
             const oidBc = String(ev.data.operatorId).trim();
-            if (
-              !oidBc ||
-              !state.filtered ||
-              state.filtered.length !== 1 ||
-              String(state.filtered[0].id).trim() !== oidBc
-            ) {
-              return;
+            const resetPend = !!ev.data.resetToPendiente;
+            if (!oidBc) return;
+            if (resetPend) {
+              try {
+                const pendingPermiso = withComputedEstatusFinal(
+                  defaultPermisoStatus()
+                );
+                window.localStorage.setItem(
+                  permisoStatusStorageKey(oidBc),
+                  JSON.stringify(pendingPermiso)
+                );
+                bumpPermisoLocalMutationEpoch(oidBc);
+              } catch (eRem) {
+                /* ignore */
+              }
             }
-            refreshPortalPermisoStatusUI(oidBc);
-            updateEstatusPermisoActionButtonsState();
-            try {
-              maybeRenderAdminRequestHistory();
-            } catch (eBc) {
-              /* ignore */
+            const isVisibleOp =
+              state.filtered &&
+              state.filtered.length === 1 &&
+              String(state.filtered[0].id).trim() === oidBc;
+            if (isVisibleOp) {
+              refreshPortalPermisoStatusUI(oidBc);
+              updateEstatusPermisoActionButtonsState();
+              try {
+                maybeRenderAdminRequestHistory();
+              } catch (eBc) {
+                /* ignore */
+              }
+              renderAdminSavedRequestSummary();
             }
-            renderAdminSavedRequestSummary();
+            if (resetPend) {
+              refreshPermisoStatusFromFirestoreForOperator(oidBc);
+            }
           };
         }
       } catch (eBc2) {
@@ -9868,7 +9896,7 @@ function init() {
     if (!window.__portalPermisoStatusBound) {
       window.__portalPermisoStatusBound = true;
 
-      const syncPermisoIfCurrentOperator = (updatedOpId) => {
+      const syncPermisoIfCurrentOperator = (updatedOpId, meta) => {
         const currentOid =
           window.sessionStorage.getItem("vacaciones_operator_id");
         if (
@@ -9878,7 +9906,26 @@ function init() {
         ) {
           return;
         }
+        if (meta && meta.resetToPendiente) {
+          try {
+            const pendingPermiso = withComputedEstatusFinal(
+              defaultPermisoStatus()
+            );
+            window.localStorage.setItem(
+              permisoStatusStorageKey(String(currentOid).trim()),
+              JSON.stringify(pendingPermiso)
+            );
+            bumpPermisoLocalMutationEpoch(String(currentOid).trim());
+          } catch (eP) {
+            /* ignore */
+          }
+        }
         refreshPortalPermisoStatusUI(currentOid);
+        if (meta && meta.resetToPendiente) {
+          refreshPermisoStatusFromFirestoreForOperator(
+            String(currentOid).trim()
+          );
+        }
       };
 
       function syncSaldoIfCurrentOperator(updatedOpId) {
@@ -9922,7 +9969,7 @@ function init() {
           const bc = new BroadcastChannel(PERMISO_STATUS_BC);
           bc.onmessage = function (ev) {
             if (ev.data && ev.data.operatorId) {
-              syncPermisoIfCurrentOperator(ev.data.operatorId);
+              syncPermisoIfCurrentOperator(ev.data.operatorId, ev.data);
             }
           };
           const bcSaldo = new BroadcastChannel(VACATION_SALDO_BC);
