@@ -2746,6 +2746,31 @@ function syncPortalRequestFlowUI(operatorId) {
     // El historial puede reflejar decisión en espejo Firestore aunque el permiso local tarde (p. ej. iOS).
     algunAdminDecidio = latestHistoryShowsAnyAdminDecision(opId);
   }
+  // Nuevo ciclo recién guardado: si la última entrada es Pendiente y corresponde al mismo
+  // payload bloqueado actual, no activar modo post-decisión por residuos del ciclo anterior.
+  if (hasSaved && topEntry && topEstadoNorm === "pendiente") {
+    try {
+      const payRaw = window.localStorage.getItem(
+        `vacaciones_last_saved_payload_${opId}`
+      );
+      const topPay = topEntry && topEntry.payload ? topEntry.payload : null;
+      if (payRaw && topPay && typeof topPay === "object") {
+        const localStable =
+          typeof stableStringifyPayloadForMirrorCompare === "function"
+            ? stableStringifyPayloadForMirrorCompare(JSON.parse(payRaw))
+            : JSON.stringify(JSON.parse(payRaw));
+        const topStable =
+          typeof stableStringifyPayloadForMirrorCompare === "function"
+            ? stableStringifyPayloadForMirrorCompare(topPay)
+            : JSON.stringify(topPay);
+        if (localStable === topStable && !latestHistoryShowsAnyAdminDecision(opId)) {
+          algunAdminDecidio = false;
+        }
+      }
+    } catch (e) {
+      /* ignore */
+    }
+  }
   // Última fila solo «Archivada» (reset maestro / na): no es «solicitud en curso» ni post‑decisión.
   if (
     topEntry &&
@@ -10738,6 +10763,19 @@ function init() {
         lockedPayloadLocalKey,
         JSON.stringify(payloadToStore)
       );
+      // Nuevo ciclo en portal: reset local inmediato de filas admin a pendiente para
+      // evitar que la UI arrastre aprobado/rechazado del ciclo anterior.
+      try {
+        const pendingPermiso = withComputedEstatusFinal(defaultPermisoStatus());
+        window.localStorage.setItem(
+          permisoStatusStorageKey(String(operatorScopeId)),
+          JSON.stringify(pendingPermiso)
+        );
+        bumpPermisoLocalMutationEpoch(String(operatorScopeId));
+        broadcastPermisoStatusChanged(String(operatorScopeId));
+      } catch (ePermiso) {
+        /* ignore */
+      }
 
       // Historial: cada guardado añade fila en Pendiente; luego `syncAdminRequestHistoryEstados`
       // ajusta la vigente a Aprobada/Rechazada/Pendiente según permiso o Archivada (maestro, etc.).
