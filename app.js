@@ -677,6 +677,9 @@ function attachFirestoreFolioFromRemoteForEntry(entry, remoteArr) {
         ? String(r.payload.motive)
         : "";
     if (rm !== motive) continue;
+    const sp = stableStringifyPayloadForMirrorCompare(entry.payload);
+    const sr = stableStringifyPayloadForMirrorCompare(r.payload);
+    if (!sp || sp !== sr) continue;
     const t1 = r && r.ts ? r.ts : 0;
     const dt = Math.abs(t1 - t2);
     if (dt < HISTORY_ENTRY_DUP_NEAR_MS && dt < bestDt) {
@@ -767,10 +770,30 @@ function historialEstadoMergeWeight(val) {
 }
 
 function mergeDuplicateHistoryEntries(existing, incoming) {
+  const stableE = stableStringifyPayloadForMirrorCompare(
+    existing && existing.payload
+  );
+  const stableI = stableStringifyPayloadForMirrorCompare(
+    incoming && incoming.payload
+  );
+  const samePayload = stableE !== "" && stableE === stableI;
   const we = historialEstadoMergeWeight(existing && existing.estadoHistorial);
   const wi = historialEstadoMergeWeight(incoming && incoming.estadoHistorial);
-  const winner = wi > we ? incoming : existing;
-  const loser = wi > we ? existing : incoming;
+  const te = existing && existing.ts ? existing.ts : 0;
+  const ti = incoming && incoming.ts ? incoming.ts : 0;
+  let winner;
+  let loser;
+  if (
+    !samePayload &&
+    ((we >= 3 && wi === 1) || (wi >= 3 && we === 1))
+  ) {
+    /* Misma ventana/motivo por error: no fusionar decisión fuerte de otro ciclo con pendiente nuevo */
+    winner = ti >= te ? incoming : existing;
+    loser = winner === incoming ? existing : incoming;
+  } else {
+    winner = wi > we ? incoming : existing;
+    loser = wi > we ? existing : incoming;
+  }
   const merged = Object.assign({}, winner);
   if (
     (!merged.operatorName || String(merged.operatorName).trim() === "") &&
@@ -847,10 +870,14 @@ function mergeHistoryEntriesPreferFirestore(localArr, remoteArr) {
           : "";
       const t1 = o && o.ts ? o.ts : 0;
       const t2 = e && e.ts ? e.ts : 0;
+      const stableE = stableStringifyPayloadForMirrorCompare(e && e.payload);
+      const stableO = stableStringifyPayloadForMirrorCompare(o && o.payload);
       if (
         motive &&
         motive === om &&
-        Math.abs(t1 - t2) < HISTORY_ENTRY_DUP_NEAR_MS
+        Math.abs(t1 - t2) < HISTORY_ENTRY_DUP_NEAR_MS &&
+        stableE !== "" &&
+        stableE === stableO
       ) {
         dupIdx = j;
         break;
