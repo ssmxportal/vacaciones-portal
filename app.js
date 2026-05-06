@@ -3227,6 +3227,10 @@ function reconcilePermisoForOperatorFromNetwork(opId) {
         refreshPortalPermisoStatusUI(id);
         updateEstatusPermisoActionButtonsState();
         if (isAdminHtmlPage()) refreshAdminNotificationList();
+        pushAdminPermisoDebugEvent("reconcile_skipped_epoch", {
+          operatorId: id,
+          changed: false,
+        });
         return false;
       }
       const docSnap =
@@ -3253,10 +3257,18 @@ function reconcilePermisoForOperatorFromNetwork(opId) {
       refreshPortalPermisoStatusUI(id);
       updateEstatusPermisoActionButtonsState();
       if (isAdminHtmlPage()) refreshAdminNotificationList();
+      pushAdminPermisoDebugEvent("reconcile_done", {
+        operatorId: id,
+        changed: !!changed,
+      });
       return changed;
     })
     .catch(function (err) {
       console.warn("[Firestore] reconcile permiso:", err);
+      pushAdminPermisoDebugEvent("reconcile_error", {
+        operatorId: id,
+        error: err && err.message ? String(err.message) : String(err || "error"),
+      });
       return false;
     });
 }
@@ -3486,7 +3498,116 @@ function refreshAdminFirestoreMirrorsThenUi() {
     .then(function () {
       refreshAdminNotificationList();
       renderAdminSavedRequestSummary();
+      pushAdminPermisoDebugEvent("refresh_admin_ui", {});
     });
+}
+
+function ensureAdminPermisoDebugPanel() {
+  if (!isAdminHtmlPage()) return null;
+  let panel = document.getElementById("adminPermisoDebugPanel");
+  if (panel) return panel;
+  panel = document.createElement("div");
+  panel.id = "adminPermisoDebugPanel";
+  panel.style.cssText =
+    "position:fixed;right:12px;bottom:12px;z-index:2147483000;background:rgba(17,24,39,.94);color:#fff;padding:10px 12px;border-radius:10px;box-shadow:0 8px 22px rgba(0,0,0,.28);font:12px/1.35 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;max-width:320px;min-width:260px;";
+  panel.innerHTML =
+    '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:6px;"><strong style="font-size:12px;">Debug permiso admin (temporal)</strong><button type="button" id="adminPermisoDebugCloseBtn" style="border:none;border-radius:999px;padding:2px 8px;background:#374151;color:#fff;cursor:pointer;font-size:11px;">Ocultar</button></div><div id="adminPermisoDebugBody"></div>';
+  document.body.appendChild(panel);
+  const closeBtn = document.getElementById("adminPermisoDebugCloseBtn");
+  if (closeBtn) {
+    closeBtn.addEventListener("click", function () {
+      panel.style.display = "none";
+    });
+  }
+  return panel;
+}
+
+function formatAdminPermisoDebugTs(ts) {
+  const d = new Date(Number(ts || 0));
+  if (Number.isNaN(d.getTime())) return "—";
+  return d.toLocaleTimeString();
+}
+
+function renderAdminPermisoDebugPanel() {
+  if (!isAdminHtmlPage()) return;
+  const panel = ensureAdminPermisoDebugPanel();
+  if (!panel) return;
+  const body = document.getElementById("adminPermisoDebugBody");
+  if (!body) return;
+  const activeOp =
+    state.filtered && state.filtered.length === 1 && state.filtered[0].id
+      ? String(state.filtered[0].id).trim()
+      : "—";
+  const role =
+    state.currentRole || window.sessionStorage.getItem("vacaciones_role") || "—";
+  const profile = window.sessionStorage.getItem("vacaciones_admin_profile") || "—";
+  const events = Array.isArray(window.__adminPermisoDebugEvents)
+    ? window.__adminPermisoDebugEvents
+    : [];
+  const latest = events.length ? events[events.length - 1] : null;
+  const lines = events
+    .slice(-6)
+    .reverse()
+    .map(function (ev) {
+      const extra = ev && ev.extra ? String(ev.extra) : "";
+      return (
+        '<div style="margin-top:3px;"><span style="color:#93c5fd;">' +
+        formatAdminPermisoDebugTs(ev.ts) +
+        "</span> · " +
+        escapeHtml(ev.type || "event") +
+        (extra ? " · " + escapeHtml(extra) : "") +
+        "</div>"
+      );
+    })
+    .join("");
+  body.innerHTML =
+    '<div><strong>Operador:</strong> ' +
+    escapeHtml(activeOp) +
+    "</div>" +
+    '<div><strong>Rol:</strong> ' +
+    escapeHtml(String(role)) +
+    " / " +
+    escapeHtml(String(profile)) +
+    "</div>" +
+    '<div><strong>Último evento:</strong> ' +
+    escapeHtml(latest ? String(latest.type || "—") : "—") +
+    "</div>" +
+    '<div style="margin-top:6px;padding-top:6px;border-top:1px solid rgba(255,255,255,.2);"><strong>Eventos recientes</strong>' +
+    lines +
+    "</div>";
+}
+
+function pushAdminPermisoDebugEvent(type, payload) {
+  if (!isAdminHtmlPage()) return;
+  window.__adminPermisoDebugEvents = window.__adminPermisoDebugEvents || [];
+  const data = payload && typeof payload === "object" ? payload : {};
+  const op = data.operatorId != null ? String(data.operatorId).trim() : "";
+  const parts = [];
+  if (op) parts.push("op " + op);
+  if (Object.prototype.hasOwnProperty.call(data, "exists")) {
+    parts.push(data.exists ? "exists" : "no-doc");
+  }
+  if (Object.prototype.hasOwnProperty.call(data, "fromCache")) {
+    parts.push(data.fromCache ? "cache" : "server");
+  }
+  if (Object.prototype.hasOwnProperty.call(data, "pendingWrites")) {
+    parts.push(data.pendingWrites ? "pendingWrites" : "committed");
+  }
+  if (data.changed != null) {
+    parts.push(data.changed ? "changed" : "no-change");
+  }
+  if (data.error) {
+    parts.push(String(data.error));
+  }
+  window.__adminPermisoDebugEvents.push({
+    ts: Date.now(),
+    type: String(type || "event"),
+    extra: parts.join(" | "),
+  });
+  if (window.__adminPermisoDebugEvents.length > 40) {
+    window.__adminPermisoDebugEvents = window.__adminPermisoDebugEvents.slice(-40);
+  }
+  renderAdminPermisoDebugPanel();
 }
 
 function stopAdminPermisoEstadoLiveSync() {
@@ -3572,6 +3693,12 @@ function wireAdminPermisoEstadoOnSnapshot(opId) {
     { includeMetadataChanges: true },
     function (snap) {
       if (!isAdminHtmlPage()) return;
+      pushAdminPermisoDebugEvent("snapshot", {
+        operatorId: idNorm,
+        exists: !!(snap && snap.exists),
+        fromCache: !!(snap && snap.metadata && snap.metadata.fromCache),
+        pendingWrites: !!(snap && snap.metadata && snap.metadata.hasPendingWrites),
+      });
       if (
         !state.filtered ||
         state.filtered.length !== 1 ||
@@ -3607,6 +3734,10 @@ function wireAdminPermisoEstadoOnSnapshot(opId) {
     },
     function (err) {
       console.warn("[Firestore] permisoEstado snapshot admin:", err);
+      pushAdminPermisoDebugEvent("snapshot_error", {
+        operatorId: idNorm,
+        error: err && err.message ? String(err.message) : String(err || "error"),
+      });
       const now = Date.now();
       window.__adminPermisoSnapshotErrLastTs =
         window.__adminPermisoSnapshotErrLastTs || 0;
@@ -3619,6 +3750,7 @@ function wireAdminPermisoEstadoOnSnapshot(opId) {
       }, 500);
     }
   );
+  pushAdminPermisoDebugEvent("snapshot_listen_start", { operatorId: idNorm });
   refreshPermisoStatusFromFirestoreForOperator(idNorm);
 }
 
@@ -5456,6 +5588,18 @@ function setupAdminPermisoDecisionButtons() {
     setPermisoStatusField(opId, profile, value);
     refreshPortalPermisoStatusUI(opId);
     renderAdminSavedRequestSummary();
+    // Respaldo iOS/WebKit: confirma desde servidor tras la escritura local+Firestore.
+    window.setTimeout(function () {
+      refreshPermisoStatusFromFirestoreForOperator(opId).then(function () {
+        refreshPortalPermisoStatusUI(opId);
+        updateEstatusPermisoActionButtonsState();
+        renderAdminSavedRequestSummary();
+        pushAdminPermisoDebugEvent("post_decision_refresh", {
+          operatorId: opId,
+          changed: true,
+        });
+      });
+    }, 260);
     const filaNombre =
       profile === "supervisor"
         ? "Supervisor"
@@ -9601,6 +9745,7 @@ function init() {
     setupAdminRequestHistoryToggle();
     setupAdminHistorialFirestoreScopeControls();
     setupAdminNotificationCenter();
+    pushAdminPermisoDebugEvent("admin_init", {});
     refreshAdminFirestoreMirrorsThenUi();
     if (!window.__adminPermisoStatusBcBound) {
       window.__adminPermisoStatusBcBound = true;
@@ -9636,6 +9781,7 @@ function init() {
       window.__adminFsPendingMirrorFocusBound = true;
       const refreshAdminMirrorNow = function () {
         refreshAdminFirestoreMirrorsThenUi();
+        restartAdminPermisoEstadoLiveSync();
       };
       document.addEventListener("visibilitychange", function () {
         if (document.visibilityState !== "visible") return;
@@ -9674,6 +9820,7 @@ function init() {
         }
         const oidPoll = String(state.filtered[0].id).trim();
         if (!oidPoll) return;
+        restartAdminPermisoEstadoLiveSync();
         refreshPermisoStatusFromFirestoreForOperator(oidPoll);
       }, 2000);
     }
