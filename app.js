@@ -2765,7 +2765,8 @@ function syncPortalRequestFlowUI(operatorId) {
           typeof stableStringifyPayloadForMirrorCompare === "function"
             ? stableStringifyPayloadForMirrorCompare(topPay)
             : JSON.stringify(topPay);
-        if (localStable === topStable) {
+        const hasCurrentPermisoDecision = operatorHasAnyAdminPermisoDecision(opId);
+        if (localStable === topStable && !hasCurrentPermisoDecision) {
           algunAdminDecidio = false;
         }
       }
