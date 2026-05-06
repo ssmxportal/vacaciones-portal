@@ -6452,6 +6452,24 @@ function getPortalSaldoVacacionalPeriodoPersistido() {
   return getPortalVacationSaldoRestante(opId);
 }
 
+/**
+ * No. días del motivo actual mayor que el saldo persistido (p. ej. pide 4 y tiene 3).
+ * No aplica fuera del rol local.
+ */
+function portalSolicitudExcedeSaldoVacacionalPersistido() {
+  if (window.sessionStorage.getItem("vacaciones_role") !== "local") return false;
+  const pedidos = getPortalDiasEnCampoNoDiasPorMotivoActual();
+  if (pedidos < 1) return false;
+  return pedidos > getPortalSaldoVacacionalPeriodoPersistido();
+}
+
+/** Bloquea «Guardar» cuando no hay días mostrables o la solicitud supera el saldo guardado. */
+function portalSaldoVacacionalBloqueaGuardarSolicitud() {
+  if (window.sessionStorage.getItem("vacaciones_role") !== "local") return false;
+  if (getPortalDiasDisponiblesParaEtiquetaPortal() <= 0) return true;
+  return portalSolicitudExcedeSaldoVacacionalPersistido();
+}
+
 /** Vacaciones: desplazamiento en días calendario para la 2.ª fecha = No. días. */
 function getPortalVacacionesDiasSolicitadosParaFechaFin() {
   const el = document.getElementById("diasSolicitadosInput");
@@ -6484,15 +6502,35 @@ function syncPortalDiasDisponiblesLabels() {
   const n = getPortalDiasDisponiblesParaEtiquetaPortal();
   const saldoPersistido = getPortalSaldoVacacionalPeriodoPersistido();
   const sinSaldoEnPeriodo = saldoPersistido <= 0;
+  const role = window.sessionStorage.getItem("vacaciones_role");
+  const pedidos =
+    role === "local" ? getPortalDiasEnCampoNoDiasPorMotivoActual() : 0;
+  const excedeSaldoParaSolicitud =
+    role === "local" &&
+    !sinSaldoEnPeriodo &&
+    pedidos > 0 &&
+    pedidos > saldoPersistido;
+
   document.querySelectorAll(".diasDisponiblesValue").forEach(function (el) {
     el.textContent = String(n);
     el.classList.toggle("diasDisponiblesValue--zero", sinSaldoEnPeriodo);
   });
-  const saldoMsg = "No dispone de saldo de vacaciones en su periodo actual.";
+  const msgSaldoCero =
+    "No dispone de saldo de vacaciones en su periodo actual.";
+  const msgSaldoInsuficienteParaSolicitud =
+    "No dispone de saldo suficiente en su periodo actual.";
+  let saldoMsg = "";
+  let showWarn = false;
+  if (sinSaldoEnPeriodo) {
+    showWarn = true;
+    saldoMsg = msgSaldoCero;
+  } else if (excedeSaldoParaSolicitud) {
+    showWarn = true;
+    saldoMsg = msgSaldoInsuficienteParaSolicitud;
+  }
   document.querySelectorAll(".portal-dias-saldo-warning").forEach(function (el) {
-    const show = sinSaldoEnPeriodo;
-    el.textContent = show ? saldoMsg : "";
-    el.style.display = show ? "block" : "none";
+    el.textContent = saldoMsg;
+    el.style.display = showWarn ? "block" : "none";
   });
 }
 
@@ -11345,7 +11383,7 @@ function init() {
 
     if (btnGuardarVacaciones) {
       btnGuardarVacaciones.addEventListener("click", function () {
-        if (getPortalDiasDisponiblesParaEtiquetaPortal() <= 0) {
+        if (portalSaldoVacacionalBloqueaGuardarSolicitud()) {
           enablePortalSaldoWarning();
           return;
         }
@@ -11378,7 +11416,7 @@ function init() {
 
     if (btnGuardarFaltaJustificada) {
       btnGuardarFaltaJustificada.addEventListener("click", function () {
-        if (getPortalDiasDisponiblesParaEtiquetaPortal() <= 0) {
+        if (portalSaldoVacacionalBloqueaGuardarSolicitud()) {
           enablePortalSaldoWarning();
           return;
         }
@@ -11412,7 +11450,7 @@ function init() {
 
     if (btnGuardarPermisoSinGoce) {
       btnGuardarPermisoSinGoce.addEventListener("click", function () {
-        if (getPortalDiasDisponiblesParaEtiquetaPortal() <= 0) {
+        if (portalSaldoVacacionalBloqueaGuardarSolicitud()) {
           enablePortalSaldoWarning();
           return;
         }
@@ -11446,7 +11484,7 @@ function init() {
 
     if (btnGuardarPermisoGoce) {
       btnGuardarPermisoGoce.addEventListener("click", function () {
-        if (getPortalDiasDisponiblesParaEtiquetaPortal() <= 0) {
+        if (portalSaldoVacacionalBloqueaGuardarSolicitud()) {
           enablePortalSaldoWarning();
           return;
         }
