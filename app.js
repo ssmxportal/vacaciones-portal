@@ -936,6 +936,28 @@ function refreshPortalHistoryFromFirestore(opId) {
           }
         }
       }
+      if (shouldClearPortalLockFromRemoteHistorialSnapshot(id, mapped)) {
+        return clearPortalLockWhenNoPendingSolicitudInFirestore(id).then(function (
+          did
+        ) {
+          if (did) {
+            try {
+              applyPortalUnlockUIAfterRemoteArchivada(id);
+            } catch (eU) {
+              /* ignore */
+            }
+          }
+          maybeRenderPortalRequestHistory();
+          refreshPortalPermisoStatusUI(id);
+          syncPortalRequestFlowUI(id);
+          try {
+            portalPollLocalVacationSaldoIfChanged();
+          } catch (eSal) {
+            /* ignore */
+          }
+          return true;
+        });
+      }
       maybeRenderPortalRequestHistory();
       return true;
     })
@@ -1335,6 +1357,153 @@ function clearPortalLockWhenNoPendingSolicitudInFirestore(opId) {
   });
 }
 
+function getPortalLocalLockedPayloadObject(opId) {
+  const id = String(opId || "").trim();
+  if (!id) return null;
+  let payRaw = window.localStorage.getItem(`vacaciones_last_saved_payload_${id}`);
+  if (!payRaw || !String(payRaw).trim()) {
+    payRaw = window.sessionStorage.getItem(`vacaciones_locked_payload_${id}`);
+  }
+  if (!payRaw || !String(payRaw).trim()) return null;
+  try {
+    const o = JSON.parse(payRaw);
+    return o && typeof o === "object" ? o : null;
+  } catch (e) {
+    return null;
+  }
+}
+
+function portalMappedSolicitudesHavePendiente(mapped) {
+  if (!mapped || !mapped.length) return false;
+  for (let i = 0; i < mapped.length; i++) {
+    if (normalizeHistorialEstadoStored(mapped[i].estadoHistorial) === "pendiente") {
+      return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * Firestore no tiene solicitudes pendiente y la fila más reciente está archivada: el borrador
+ * local coincide con esa fila → limpiar bloqueo y repintar sin recargar la pestaña.
+ */
+function shouldClearPortalLockFromRemoteHistorialSnapshot(opId, mapped) {
+  const id = String(opId || "").trim();
+  if (!id || !isPortalHtmlPage()) return false;
+  const hasLocalPersisted = operatorHasValidSavedRequestInStorage(id);
+  const sessLock =
+    window.sessionStorage.getItem(`vacaciones_locked_mode_${id}`) === "1";
+  if (!hasLocalPersisted && !sessLock) return false;
+  if (!mapped || !mapped.length) return false;
+  if (portalMappedSolicitudesHavePendiente(mapped)) return false;
+  const sorted = mapped.slice().sort(function (a, b) {
+    return (b && b.ts ? Number(b.ts) : 0) - (a && a.ts ? Number(a.ts) : 0);
+  });
+  const latest = sorted[0];
+  const latestNorm = latest
+    ? normalizeHistorialEstadoStored(latest.estadoHistorial)
+    : "";
+  if (latestNorm !== "na") return false;
+  const localPay = getPortalLocalLockedPayloadObject(id);
+  if (!localPay) {
+    return true;
+  }
+  const remotePay = latest && latest.payload;
+  if (!remotePay || typeof remotePay !== "object") {
+    return true;
+  }
+  return (
+    stableStringifyPayloadForMirrorCompare(localPay) ===
+    stableStringifyPayloadForMirrorCompare(remotePay)
+  );
+}
+
+/**
+ * Tras archivar en nube y borrar claves locales: quitar locked-mode y dejar motivo como al entrar.
+ */
+function applyPortalUnlockUIAfterRemoteArchivada(opId) {
+  if (!isPortalHtmlPage()) return;
+  const id = String(opId || "").trim();
+  document.body.classList.remove("locked-mode");
+  portalSaldoDescontarInputEnabled = false;
+  portalSaldoWarningEnabled = false;
+
+  PORTAL_ALL_LOCKABLE_FIELD_IDS.forEach(function (fid) {
+    const el = document.getElementById(fid);
+    if (el) el.disabled = false;
+  });
+
+  const motivoSectionEl = document.getElementById("motivoSection");
+  const motivoSelectWrapEl = document.getElementById("motivoSelectWrap");
+  const motivoSelectLocalEl = document.getElementById("motivoSelectLocal");
+  if (motivoSectionEl) motivoSectionEl.style.pointerEvents = "auto";
+  if (motivoSelectWrapEl) motivoSelectWrapEl.style.pointerEvents = "auto";
+  if (motivoSelectLocalEl) {
+    motivoSelectLocalEl.disabled = false;
+    motivoSelectLocalEl.value = "";
+    if (typeof updateMotivoSelectPlaceholderClass === "function") {
+      updateMotivoSelectPlaceholderClass(motivoSelectLocalEl);
+    }
+  }
+  if (motivoSelectWrapEl) {
+    motivoSelectWrapEl
+      .querySelectorAll("select, input, textarea, button")
+      .forEach(function (el) {
+        el.disabled = false;
+      });
+  }
+
+  PORTAL_ALL_LOCKABLE_FIELD_IDS.forEach(function (fieldId) {
+    const el = document.getElementById(fieldId);
+    if (!el || !("value" in el)) return;
+    const tag = (el.tagName || "").toLowerCase();
+    if (tag === "select") {
+      el.value = "";
+      el.dispatchEvent(new Event("change", { bubbles: true }));
+    } else {
+      el.value = "";
+      el.dispatchEvent(new Event("input", { bubbles: true }));
+    }
+  });
+
+  const diasSolicitadosErrorEl = document.getElementById("diasSolicitadosError");
+  if (diasSolicitadosErrorEl) diasSolicitadosErrorEl.textContent = "";
+  const diasPgErrorEl = document.getElementById("diasSolicitadosPermisoGoceError");
+  if (diasPgErrorEl) diasPgErrorEl.textContent = "";
+  const diasFjErrorEl = document.getElementById(
+    "diasSolicitadosFaltaJustificadaError"
+  );
+  if (diasFjErrorEl) diasFjErrorEl.textContent = "";
+  const diasSgErrorEl = document.getElementById(
+    "diasSolicitadosPermisoSinGoceError"
+  );
+  if (diasSgErrorEl) diasSgErrorEl.textContent = "";
+
+  [
+    "btnGuardarVacaciones",
+    "btnGuardarFaltaJustificada",
+    "btnGuardarPermisoSinGoce",
+    "btnGuardarPermisoGoce",
+  ].forEach(function (btnId) {
+    const btn = document.getElementById(btnId);
+    if (btn) btn.disabled = false;
+  });
+  document.querySelectorAll(".btn-modif-cambios").forEach(function (b) {
+    b.disabled = false;
+  });
+
+  if (typeof window.__portalUpdateCardsByMotivo === "function") {
+    window.__portalUpdateCardsByMotivo();
+  }
+  if (id && id !== "global") {
+    syncPortalModificarCambiosButtonsVisibility(id);
+    setPortalModificarCambiosActiveForAdminLock(id);
+  }
+  if (typeof syncPortalDiasDisponiblesLabels === "function") {
+    syncPortalDiasDisponiblesLabels();
+  }
+}
+
 /**
  * Aplica al almacenamiento local la solicitud pendiente devuelta por Firestore (espejo).
  * @returns {boolean} true si se escribió un payload distinto al que había en localStorage.
@@ -1473,7 +1642,28 @@ function refreshPortalPendingLockMirrorFromFirestore(opId) {
     }
 
     if (isSecondAttempt) {
-      return Promise.resolve(false);
+      const mapped =
+        (window.__firestoreHistorialByOperator &&
+          window.__firestoreHistorialByOperator[id]) ||
+        [];
+      if (!shouldClearPortalLockFromRemoteHistorialSnapshot(id, mapped)) {
+        return Promise.resolve(false);
+      }
+      return clearPortalLockWhenNoPendingSolicitudInFirestore(id).then(function (
+        cleared
+      ) {
+        if (cleared && isPortalHtmlPage()) {
+          try {
+            applyPortalUnlockUIAfterRemoteArchivada(id);
+          } catch (eU) {
+            /* ignore */
+          }
+          syncPortalRequestFlowUI(id);
+          maybeRenderPortalRequestHistory();
+          refreshPortalPermisoStatusUI(id);
+        }
+        return cleared;
+      });
     }
 
     return portalPendingLockMirrorDelay()
@@ -1596,6 +1786,40 @@ const MOTIVOS = [
   "Permiso con goce",
   "Falta justificada",
   "Permiso sin goce"
+];
+/** IDs de campos del portal que locked-mode puede deshabilitar (desbloqueo tras archivar en nube). */
+const PORTAL_ALL_LOCKABLE_FIELD_IDS = [
+  "diasSolicitadosInput",
+  "fechaDiaSelect",
+  "fechaMesSelect",
+  "fechaAnioSelect",
+  "fechaDiaSelectFin",
+  "fechaMesSelectFin",
+  "fechaAnioSelectFin",
+  "diasSolicitadosFaltaJustificadaInput",
+  "fechaJustificarDiaSelect",
+  "fechaJustificarMesSelect",
+  "fechaJustificarAnioSelect",
+  "fechaJustificarDiaSelectFin",
+  "fechaJustificarMesSelectFin",
+  "fechaJustificarAnioSelectFin",
+  "motivoFaltaJustificadaInput",
+  "diasSolicitadosPermisoSinGoceInput",
+  "fechaPermisoSinGoceDiaSelect",
+  "fechaPermisoSinGoceMesSelect",
+  "fechaPermisoSinGoceAnioSelect",
+  "fechaPermisoSinGoceDiaSelectFin",
+  "fechaPermisoSinGoceMesSelectFin",
+  "fechaPermisoSinGoceAnioSelectFin",
+  "motivoPermisoSinGoceInput",
+  "permisoGoceSelect",
+  "diasSolicitadosPermisoGoceInput",
+  "fechaPermisoDiaSelect",
+  "fechaPermisoMesSelect",
+  "fechaPermisoAnioSelect",
+  "fechaPermisoDiaSelectFin",
+  "fechaPermisoMesSelectFin",
+  "fechaPermisoAnioSelectFin",
 ];
 const DIAS_VACACIONALES_BASE = 20;
 
@@ -10278,6 +10502,7 @@ function init() {
       }
       syncPortalDiasDisponiblesLabels();
     }
+    window.__portalUpdateCardsByMotivo = updateCardsByMotivo;
 
     // Si se llegó a la pestaña con modo "locked", cargar los datos guardados y deshabilitar todo.
     let lockedValuesToApply = null;
