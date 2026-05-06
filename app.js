@@ -679,7 +679,7 @@ function attachFirestoreFolioFromRemoteForEntry(entry, remoteArr) {
     if (rm !== motive) continue;
     const t1 = r && r.ts ? r.ts : 0;
     const dt = Math.abs(t1 - t2);
-    if (dt < HISTORY_ENTRY_DUP_MAX_MS && dt < bestDt) {
+    if (dt < HISTORY_ENTRY_DUP_NEAR_MS && dt < bestDt) {
       const f =
         r && r.firestoreFolio ? String(r.firestoreFolio).trim() : "";
       if (f) {
@@ -746,11 +746,12 @@ function backfillSolicitudFirestoreStatusIfNeeded(entry) {
 }
 
 /**
- * Misma solicitud en portal (ts del guardado) vs Firestore (`createdAt`): suelen separarse
- * muchos ms; 20s no alcanzaba y quedaban dos filas (local «pendiente» + remoto «archivada»),
- * con la local primero y la UI creyendo que seguía «en curso».
+ * Desfase máximo al emparejar por mismo motivo **sin** `firestoreFolio` coincidente:
+ * cubre el retardo local↔Firestore de **una misma** solicitud (20s no bastaba),
+ * pero no debe mezclar dos ciclos distintos (mismo motivo días después): si no, la fila
+ * nueva «pendiente» se fusiona con la remota «aprobada» y gana el estado fuerte.
  */
-const HISTORY_ENTRY_DUP_MAX_MS = 90 * 24 * 60 * 60 * 1000;
+const HISTORY_ENTRY_DUP_NEAR_MS = 45 * 60 * 1000;
 
 /**
  * Combina historial local y copias en Firestore; si hay duplicado cercano en tiempo y mismo
@@ -846,7 +847,11 @@ function mergeHistoryEntriesPreferFirestore(localArr, remoteArr) {
           : "";
       const t1 = o && o.ts ? o.ts : 0;
       const t2 = e && e.ts ? e.ts : 0;
-      if (motive && motive === om && Math.abs(t1 - t2) < HISTORY_ENTRY_DUP_MAX_MS) {
+      if (
+        motive &&
+        motive === om &&
+        Math.abs(t1 - t2) < HISTORY_ENTRY_DUP_NEAR_MS
+      ) {
         dupIdx = j;
         break;
       }
