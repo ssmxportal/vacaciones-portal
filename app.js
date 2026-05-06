@@ -3024,6 +3024,8 @@ function setupPortalRequestHistoryToggle() {
 
 const PERMISO_STATUS_BC = "vacaciones_permiso_status_bc";
 const VACATION_SALDO_BC = "vacaciones_saldo_vacaciones_bc";
+/** maestroop.html → portal.html: avisar reset sin depender solo de `storage` (clave mal emparejada, Safari). */
+const MAESTRO_PORTAL_RESET_BC = "vacaciones_maestro_portal_reset_bc";
 
 /** Canal reutilizado: crear/cerrar en cada envío puede fallar en algunos navegadores. */
 let __permisoStatusBcSender = null;
@@ -3039,6 +3041,61 @@ function broadcastVacationSaldoReset(operatorId) {
   } catch (e) {
     /* ignore */
   }
+}
+
+window.__maestroPortalResetBcSender = window.__maestroPortalResetBcSender || null;
+
+function broadcastMaestroPortalReset(operatorId) {
+  try {
+    if (typeof BroadcastChannel === "undefined") return;
+    if (!window.__maestroPortalResetBcSender) {
+      window.__maestroPortalResetBcSender = new BroadcastChannel(
+        MAESTRO_PORTAL_RESET_BC
+      );
+    }
+    window.__maestroPortalResetBcSender.postMessage({
+      operatorId: String(operatorId || "").trim(),
+    });
+  } catch (e) {
+    /* ignore */
+  }
+}
+
+/**
+ * Tras RESET en maestroop: el portal abierto en otra pestaña debe reflejar el borrado ya hecho en localStorage.
+ * El listener `storage` antes armaba la clave con `resolvePortalOperatorScopeId()` y podía no coincidir con el
+ * sufijo real del operador reseteado → no recargaba. BroadcastChannel actúa de respaldo inmediato.
+ */
+function schedulePortalReloadIfMaestroResetForOperator(resetOpId) {
+  const id = String(resetOpId || "").trim();
+  if (!id || !isPortalHtmlPage()) return;
+  const currentOp = String(resolvePortalOperatorScopeId() || "").trim();
+  if (currentOp && id && currentOp !== id) {
+    return;
+  }
+  const modeKey = `vacaciones_last_saved_locked_mode_${id}`;
+  const payKey = `vacaciones_last_saved_payload_${id}`;
+  const lm = window.localStorage.getItem(modeKey);
+  const pr = window.localStorage.getItem(payKey);
+  const still =
+    lm === "1" &&
+    typeof pr === "string" &&
+    pr.trim() !== "";
+  if (still) return;
+  try {
+    window.sessionStorage.removeItem(`vacaciones_locked_mode_${id}`);
+    window.sessionStorage.removeItem(`vacaciones_locked_payload_${id}`);
+    window.sessionStorage.removeItem(`vacaciones_locked_required_ids_${id}`);
+  } catch (e) {
+    /* ignore */
+  }
+  if (window.__portalMaestroResetReloadT) {
+    clearTimeout(window.__portalMaestroResetReloadT);
+  }
+  window.__portalMaestroResetReloadT = window.setTimeout(function () {
+    window.__portalMaestroResetReloadT = null;
+    window.location.reload();
+  }, 60);
 }
 
 function broadcastPermisoStatusChanged(operatorId, options) {
@@ -10306,22 +10363,37 @@ function init() {
 
     // Otra pestaña borró el respaldo local (RESET maestro): limpiar bloqueo en vivo.
     window.addEventListener("storage", function onVacacionesStorage(ev) {
-      const opId = resolvePortalOperatorScopeId() || "global";
-      const modeKey = `vacaciones_last_saved_locked_mode_${opId}`;
-      const payKey = `vacaciones_last_saved_payload_${opId}`;
-      if (ev.key !== modeKey && ev.key !== payKey) return;
-      const lm = window.localStorage.getItem(modeKey);
-      const pr = window.localStorage.getItem(payKey);
-      const still =
-        lm === "1" &&
-        typeof pr === "string" &&
-        pr.trim() !== "";
-      if (still) return;
-      window.sessionStorage.removeItem(`vacaciones_locked_mode_${opId}`);
-      window.sessionStorage.removeItem(`vacaciones_locked_payload_${opId}`);
-      window.sessionStorage.removeItem(`vacaciones_locked_required_ids_${opId}`);
-      window.location.reload();
+      const k = ev.key || "";
+      let resetOpId = "";
+      if (k.indexOf("vacaciones_last_saved_locked_mode_") === 0) {
+        resetOpId = String(
+          k.slice("vacaciones_last_saved_locked_mode_".length) || ""
+        ).trim();
+      } else if (k.indexOf("vacaciones_last_saved_payload_") === 0) {
+        resetOpId = String(
+          k.slice("vacaciones_last_saved_payload_".length) || ""
+        ).trim();
+      } else {
+        return;
+      }
+      if (!resetOpId) return;
+      schedulePortalReloadIfMaestroResetForOperator(resetOpId);
     });
+
+    if (!window.__maestroPortalResetBcBound) {
+      window.__maestroPortalResetBcBound = true;
+      try {
+        if (typeof BroadcastChannel !== "undefined") {
+          const bcMaestroReset = new BroadcastChannel(MAESTRO_PORTAL_RESET_BC);
+          bcMaestroReset.onmessage = function (ev) {
+            if (!ev.data || !ev.data.operatorId || !isPortalHtmlPage()) return;
+            schedulePortalReloadIfMaestroResetForOperator(ev.data.operatorId);
+          };
+        }
+      } catch (eBcMr) {
+        /* ignore */
+      }
+    }
 
     // Si NO estamos en modo locked, limpiar payload viejo para evitar
     // que se muestren datos guardados de otra persona.
@@ -11683,6 +11755,11 @@ function setupMaestroOp() {
         try {
           broadcastPermisoStatusChanged(operatorId);
         } catch (e) {
+          /* ignore */
+        }
+        try {
+          broadcastMaestroPortalReset(operatorId);
+        } catch (e2) {
           /* ignore */
         }
         return archivada || finalized;
