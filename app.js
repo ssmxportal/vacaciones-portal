@@ -2570,8 +2570,8 @@ function getPortalVacationSaldoMostradoAlEmpleado(opId) {
   const id = String(opId).trim();
   const base = getPortalVacationSaldoRestante(id);
   if (hasVacationSaldoManualResetMarker(id)) return base;
-  const s = withComputedEstatusFinal(getPermisoStatus(id));
-  if (normalizePermisoRowValue(s.estatusFinal) !== "aprobado") return base;
+  const vSal = resolvePortalPermisoEstatusFinalForUi(id);
+  if (normalizePermisoRowValue(vSal) !== "aprobado") return base;
   const payload = getLastSavedPayloadFromOperator(id);
   if (!payload) return base;
   const motive = String(payload.motive || "").trim();
@@ -2815,7 +2815,17 @@ function permisoAllThreeAdminsDecided(opId) {
     const x = normalizePermisoRowValue(v);
     return x === "aprobado" || x === "rechazado";
   };
-  return decided(s.supervisor) && decided(s.gerente) && decided(s.rh);
+  if (decided(s.supervisor) && decided(s.gerente) && decided(s.rh)) return true;
+  if (!operatorHasValidSavedRequestInStorage(opId)) return false;
+  try {
+    const hist = resolvePortalOperatorHistoryEntriesSorted(String(opId));
+    if (!hist.length || !hist[0]) return false;
+    const en = normalizeHistorialEstadoStored(hist[0].estadoHistorial);
+    if (en === "aprobado" || en === "rechazado") return true;
+  } catch (e) {
+    /* ignore */
+  }
+  return false;
 }
 
 function withComputedEstatusFinal(statusObj) {
@@ -2837,6 +2847,27 @@ function getPermisoStatus(operatorId) {
   } catch (e) {
     return defaultPermisoStatus();
   }
+}
+
+/**
+ * Resultado final unánime para UI del portal tras resetear filas del permiso a «pendiente» en almacenamiento:
+ * lee la fila más reciente del historial (aprobado/rechazado) cuando `estatusFinal` local ya no refleja el cierre.
+ */
+function resolvePortalPermisoEstatusFinalForUi(opId) {
+  const id = String(opId || "").trim();
+  if (!id) return "pendiente";
+  const s = withComputedEstatusFinal(getPermisoStatus(id));
+  let v = normalizePermisoRowValue(s.estatusFinal);
+  if (v === "aprobado" || v === "rechazado") return v;
+  try {
+    const hist = resolvePortalOperatorHistoryEntriesSorted(id);
+    if (!hist.length || !hist[0]) return "pendiente";
+    const en = normalizeHistorialEstadoStored(hist[0].estadoHistorial);
+    if (en === "aprobado" || en === "rechazado") return en;
+  } catch (e) {
+    /* ignore */
+  }
+  return "pendiente";
 }
 
 /** El perfil admin actual ya registró aprobado/rechazado en su fila del permiso. */
@@ -3059,8 +3090,9 @@ function syncPortalRequestFlowUI(operatorId) {
       refreshPortalHistoryFromFirestore(opId);
     }
     document.body.classList.add("portal-final-decision-mode");
-    const sFlow = withComputedEstatusFinal(getPermisoStatus(opId));
-    const finalFlow = normalizePermisoRowValue(sFlow.estatusFinal);
+    const finalFlow = normalizePermisoRowValue(
+      resolvePortalPermisoEstatusFinalForUi(opId)
+    );
     if (finalFlow === "rechazado") {
       document.body.classList.add("portal-final-estatus-rechazado");
     } else {
@@ -3341,23 +3373,75 @@ function broadcastPermisoStatusChanged(operatorId, options) {
 /** Evita repintar en polling si no hubo cambio en localStorage */
 let __portalPermisoStatusLastJson = "";
 
+/**
+ * Tras cierre unánime (tres filas alineadas): deja Supervisor/Gerente/RH y estado final en «pendiente»
+ * en local y en `permisoEstado`, manteniendo el resultado en historial / solicitud en Firestore.
+ */
+function resetPermisoRowsToPendienteAfterUnanimousClosure(operatorId) {
+  const id = String(operatorId || "").trim();
+  if (!id) return Promise.resolve();
+  const next = defaultPermisoStatus();
+  try {
+    window.localStorage.setItem(permisoStatusStorageKey(id), JSON.stringify(next));
+    bumpPermisoLocalMutationEpoch(id);
+    broadcastPermisoStatusChanged(id);
+  } catch (e) {
+    console.warn("[permiso] reset pendiente tras cierre:", e);
+    return Promise.resolve();
+  }
+  syncAdminRequestHistoryEstados(id);
+  return whenFirebaseAuthReady()
+    .then(function () {
+      if (!db) return;
+      return db.collection("permisoEstado").doc(id).set(
+        {
+          supervisor: "pendiente",
+          gerente: "pendiente",
+          rh: "pendiente",
+          updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+        },
+        { merge: true }
+      );
+    })
+    .catch(function (err) {
+      console.warn("[Firestore] permisoEstado reset a pendiente:", err);
+    })
+    .then(function () {
+      refreshPortalPermisoStatusUI(id);
+      updateEstatusPermisoActionButtonsState();
+      if (isAdminHtmlPage()) refreshAdminNotificationList();
+    });
+}
+
 function setPermisoStatusField(operatorId, roleKey, value) {
-  const s = withComputedEstatusFinal(getPermisoStatus(operatorId));
+  const id = String(operatorId || "").trim();
+  const s = withComputedEstatusFinal(getPermisoStatus(id));
   s[roleKey] = value;
   s.estatusFinal = computeEstatusFinalFromAdminRows(s);
-  window.localStorage.setItem(
-    permisoStatusStorageKey(operatorId),
-    JSON.stringify(s)
-  );
-  bumpPermisoLocalMutationEpoch(String(operatorId));
-  broadcastPermisoStatusChanged(operatorId);
-  syncAdminRequestHistoryEstados(String(operatorId));
-  pushPermisoStatusToFirestore(operatorId);
-  pushPermisoStatusMirrorToLatestSolicitudFirestore(operatorId);
   const fin = normalizePermisoRowValue(s.estatusFinal);
+
+  window.localStorage.setItem(permisoStatusStorageKey(id), JSON.stringify(s));
+  bumpPermisoLocalMutationEpoch(id);
+  broadcastPermisoStatusChanged(id);
+  syncAdminRequestHistoryEstados(id);
+
   if (fin === "aprobado" || fin === "rechazado") {
-    syncOperatorLatestSolicitudFirestoreStatus(String(operatorId), fin);
+    Promise.resolve(pushPermisoStatusMirrorToLatestSolicitudFirestore(id))
+      .then(function () {
+        return syncOperatorLatestSolicitudFirestoreStatus(id, fin);
+      })
+      .catch(function (err) {
+        console.warn("[permiso] cierre unánime (espejo / status solicitud):", err);
+        return null;
+      })
+      .then(function () {
+        return resetPermisoRowsToPendienteAfterUnanimousClosure(id);
+      });
+    return;
   }
+
+  pushPermisoStatusToFirestore(id);
+  pushPermisoStatusMirrorToLatestSolicitudFirestore(id);
 }
 
 function clearPermisoStatusStorage(operatorId) {
@@ -4340,8 +4424,9 @@ function syncAdminHtmlSavedRequestActionButtons() {
   const decided = adminProfileHasDecidedPermisoRow(opId, profile);
   const modifSession = hasAdminModifEstadoSession(opId);
   const portalModifActive = hasPortalModificarCambiosActiveForAdminLock(opId);
-  const permisoUi = withComputedEstatusFinal(getPermisoStatus(opId));
-  const estatusFinalNormalizado = normalizePermisoRowValue(permisoUi.estatusFinal);
+  const estatusFinalNormalizado = normalizePermisoRowValue(
+    resolvePortalPermisoEstatusFinalForUi(opId)
+  );
   const bloquearModifPorDecisionFinalCerrada =
     show &&
     (estatusFinalNormalizado === "aprobado" ||
@@ -4375,7 +4460,10 @@ function syncAdminHtmlSavedRequestActionButtons() {
     if (modifSession || portalModifActive) {
       blockAR = false;
       enableModifBorrar = false;
-    } else if (profile && decided) {
+    } else if (
+      (profile && decided) ||
+      permisoAllThreeAdminsDecided(opId)
+    ) {
       blockAR = true;
       enableModifBorrar = true;
     } else {
@@ -4816,8 +4904,7 @@ function syncPortalPostDecisionActionsVisibility(opId) {
     setRow(wrapReject, false);
     return;
   }
-  const s = withComputedEstatusFinal(getPermisoStatus(oid));
-  const v = normalizePermisoRowValue(s.estatusFinal);
+  const v = normalizePermisoRowValue(resolvePortalPermisoEstatusFinalForUi(oid));
   const ack = window.localStorage.getItem(portalFinalDecisionModalAckKey(oid));
   if (v === "aprobado" && ack === "aprobado") {
     setRow(wrapApprove, true);
@@ -4842,8 +4929,9 @@ function recordVacationDaysConsumedIfApprovedVacacionesClose(operatorIdStr) {
   try {
     let consumeToken = "";
     syncAdminRequestHistoryEstados(operatorIdStr);
-    const s = withComputedEstatusFinal(getPermisoStatus(operatorIdStr));
-    const v = normalizePermisoRowValue(s.estatusFinal);
+    const v = normalizePermisoRowValue(
+      resolvePortalPermisoEstatusFinalForUi(operatorIdStr)
+    );
     if (v !== "aprobado") return;
 
     const history = getAdminRequestHistory(operatorIdStr);
@@ -4943,8 +5031,9 @@ function resetPortalOperatorForNewSolicitud(operatorId) {
   // Antes de borrar el permiso: fijar en historial el resultado final (aprobado/rechazado)
   // de la solicitud que se cierra; si no, el siguiente sync interpreta "sin permiso" como pendiente.
   try {
-    const s = withComputedEstatusFinal(getPermisoStatus(operatorIdStr));
-    const v = normalizePermisoRowValue(s.estatusFinal);
+    const v = normalizePermisoRowValue(
+      resolvePortalPermisoEstatusFinalForUi(operatorIdStr)
+    );
     if (v === "aprobado" || v === "rechazado") {
       let history = getAdminRequestHistory(operatorIdStr);
       if (history.length) {
@@ -5819,8 +5908,7 @@ function maybeShowPortalFinalDecisionModal(operatorId) {
       : (window.sessionStorage.getItem("vacaciones_operator_id") || "").trim();
   if (!oid) return;
 
-  const s = withComputedEstatusFinal(getPermisoStatus(oid));
-  const v = normalizePermisoRowValue(s.estatusFinal);
+  const v = normalizePermisoRowValue(resolvePortalPermisoEstatusFinalForUi(oid));
   if (v !== "aprobado" && v !== "rechazado") return;
 
   if (window.localStorage.getItem(portalFinalDecisionModalAckKey(oid)) === v) {
