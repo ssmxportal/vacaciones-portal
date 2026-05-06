@@ -523,6 +523,49 @@ function clearFirestorePermisoStateForNewSolicitudCycle(operatorIdStr) {
 }
 
 /**
+ * Cinturón y tirantes para iOS/WebKit: asegura que `permisoEstado` quede en pendiente
+ * al cerrar ciclo desde portal (incluso si un paso anterior en la nube falló de forma transitoria).
+ */
+function ensurePermisoEstadoPendienteForNewCycle(operatorIdStr) {
+  const id = String(operatorIdStr || "").trim();
+  if (!id || !db) return Promise.resolve(false);
+  const payload = {
+    supervisor: "pendiente",
+    gerente: "pendiente",
+    rh: "pendiente",
+    updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+  };
+  const writeOnce = function () {
+    return whenFirebaseAuthReady()
+      .then(function () {
+        if (!db) return false;
+        return db
+          .collection("permisoEstado")
+          .doc(id)
+          .set(payload, { merge: true })
+          .then(function () {
+            return true;
+          });
+      })
+      .catch(function () {
+        return false;
+      });
+  };
+  return writeOnce().then(function (ok) {
+    if (ok) return true;
+    return new Promise(function (resolve) {
+      window.setTimeout(function () {
+        writeOnce()
+          .then(resolve)
+          .catch(function () {
+            resolve(false);
+          });
+      }, 420);
+    });
+  });
+}
+
+/**
  * Actualiza el campo `status` del documento de solicitud más reciente del operador en Firestore.
  * Así, si se borran cookies/datos locales, el historial reconstruido desde la nube conserva
  * aprobado/rechazado/archivada en lugar de quedar todo en pendiente.
@@ -5252,6 +5295,9 @@ function setupPortalPostApproveActions() {
       })
       .then(function () {
         resetPortalOperatorForNewSolicitud(oid);
+        return ensurePermisoEstadoPendienteForNewCycle(oid);
+      })
+      .finally(function () {
         window.location.reload();
       });
   }
